@@ -82,7 +82,7 @@
                 <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
                     <h2 class="text-lg font-bold text-slate-800">รายการวัสดุคงเหลือในคลัง</h2>
                     <div class="flex gap-2">
-                        <button onclick="exportSummaryExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📊 ส่งออก Excel</button>
+                        <button onclick="exportSummaryExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📊 ส่งออกเฉพาะวัสดุที่เหลือ (Excel)</button>
                         <button onclick="deleteSelectedMaterial()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">❌ ลบชื่อวัสดุที่เลือก</button>
                     </div>
                 </div>
@@ -95,6 +95,7 @@
                                 <th class="p-3">ชื่อวัสดุ</th>
                                 <th class="p-3 text-right">จำนวนคงเหลือรวม</th>
                                 <th class="p-3 text-center">หน่วยนับ</th>
+                                <th class="p-3 text-right">มูลค่ารวมตามล็อต (บาท)</th>
                             </tr>
                         </thead>
                         <tbody id="summary-table-body" class="divide-y divide-slate-100 text-sm"></tbody>
@@ -304,10 +305,10 @@
             if(tabName === 'issue-history') loadIssueHistory();
         }
 
-        // --- 1. สรุปคงเหลือ ---
+        // --- 1. สรุปคงเหลือ (คำนวณมูลค่ารวมแยกตามแต่ละล็อต) ---
         async function loadSummaryData() {
             const { data: materials } = await _supabase.from('materials').select('*');
-            const { data: stockIns } = await _supabase.from('stock_in').select('material_id, qty_remaining, unit_price');
+            const { data: stockIns } = await _supabase.from('stock_in').select('lot_id, material_id, qty_remaining, unit_price');
             
             allMaterialsCache = materials || [];
             allStockInsCache = stockIns || [];
@@ -320,6 +321,9 @@
             materials.forEach(item => {
                 const itemLots = stockIns ? stockIns.filter(s => s.material_id === item.material_id) : [];
                 const totalQty = itemLots.reduce((sum, s) => sum + (s.qty_remaining || 0), 0);
+                
+                // คำนวณมูลค่ารวม: นำจำนวนคงเหลือของแต่ละล็อต คูณด้วยราคาต่อหน่วยของล็อตนั้น แล้วนำมารวมกันทุก็อต
+                const totalValue = itemLots.reduce((sum, s) => sum + ((s.qty_remaining || 0) * (s.unit_price || 0)), 0);
 
                 tbody.innerHTML += `
                     <tr class="hover:bg-slate-50">
@@ -328,26 +332,42 @@
                         <td class="p-3 font-medium text-slate-800">${item.material_name}</td>
                         <td class="p-3 text-right font-semibold text-sky-700">${totalQty.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
                         <td class="p-3 text-center">${item.unit}</td>
+                        <td class="p-3 text-right font-semibold text-emerald-700">${totalValue.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
                     </tr>
                 `;
             });
         }
 
+        // ส่งออกเฉพาะวัสดุที่มีจำนวนคงเหลือมากกว่า 0 และคำนวณมูลค่าตามล็อต
         function exportSummaryExcel() {
-            const dataToExport = allMaterialsCache.map(item => {
+            const dataToExport = [];
+
+            allMaterialsCache.forEach(item => {
                 const itemLots = allStockInsCache.filter(s => s.material_id === item.material_id);
                 const totalQty = itemLots.reduce((sum, s) => sum + (s.qty_remaining || 0), 0);
-                return {
-                    "รหัสวัสดุ": item.material_id,
-                    "ชื่อวัสดุ": item.material_name,
-                    "จำนวนคงเหลือรวม": totalQty,
-                    "หน่วยนับ": item.unit
-                };
+                
+                // กรองเฉพาะวัสดุที่มีจำนวนคงเหลือ > 0 เท่านั้น
+                if (totalQty > 0) {
+                    const totalValue = itemLots.reduce((sum, s) => sum + ((s.qty_remaining || 0) * (s.unit_price || 0)), 0);
+                    dataToExport.push({
+                        "รหัสวัสดุ": item.material_id,
+                        "ชื่อวัสดุ": item.material_name,
+                        "จำนวนคงเหลือรวม": totalQty,
+                        "หน่วยนับ": item.unit,
+                        "มูลค่ารวมตามล็อต (บาท)": totalValue
+                    });
+                }
             });
+
+            if(dataToExport.length === 0) {
+                alert('ไม่มีรายการวัสดุที่มีสินค้าคงเหลือสำหรับส่งออกครับ');
+                return;
+            }
+
             const worksheet = XLSX.utils.json_to_sheet(dataToExport);
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, "สรุปวัสดุคงเหลือ");
-            XLSX.writeFile(workbook, "summary_inventory.xlsx");
+            XLSX.writeFile(workbook, "summary_inventory_in_stock.xlsx");
         }
 
         async function deleteSelectedMaterial() {
