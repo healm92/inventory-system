@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบจัดการคลังวัสดุ (Inventory Management)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase JS Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Sarabun', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+
+    <!-- Config & Client Setup -->
+    <script>
+        // ⚠️ ใส่ Supabase URL และ Anon Key ของคุณตรงนี้
+        const SUPABASE_URL = 'YOUR_SUPABASE_PROJECT_URL';
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        
+        // ลิงก์โลโก้ของคุณ
+        const LOGO_URL = 'https://pdoojfiwedjbrjvjtqth.supabase.co/storage/v1/object/public/logo/logo.jpg';
+    </script>
+
+    <!-- หน้า Login -->
+    <div id="login-page" class="flex items-center justify-center min-h-screen p-4">
+        <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-100">
+            <div class="text-center mb-6">
+                <!-- โลโก้หน้า Login -->
+                <div class="flex justify-center mb-4">
+                    <img src="https://pdoojfiwedjbrjvjtqth.supabase.co/storage/v1/object/public/logo/logo.jpg" alt="Logo" class="w-20 h-20 object-cover rounded-full shadow-md border">
+                </div>
+                <h1 class="text-2xl font-bold text-sky-700">เข้าสู่ระบบจัดการคลังวัสดุ</h1>
+                <p class="text-slate-500 text-sm mt-1">กรอกอีเมลและรหัสผ่านเพื่อเข้าใช้งาน</p>
+            </div>
+            <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">อีเมล</label>
+                    <input type="email" id="email" required class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">รหัสผ่าน</label>
+                    <input type="password" id="password" required class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none">
+                </div>
+                <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-medium py-2.5 rounded-lg transition">
+                    เข้าสู่ระบบ
+                </button>
+            </form>
+            <div id="login-error" class="mt-4 text-sm text-red-500 text-center hidden"></div>
+        </div>
+    </div>
+
+    <!-- หน้า Dashboard แอปพลิเคชันหลัก -->
+    <div id="app-page" class="hidden">
+        <!-- Navbar Header -->
+        <nav class="bg-sky-800 text-white shadow-md">
+            <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+                <div class="flex items-center space-x-3">
+                    <!-- โลโก้ Navbar -->
+                    <img src="https://pdoojfiwedjbrjvjtqth.supabase.co/storage/v1/object/public/logo/logo.jpg" alt="Logo" class="w-10 h-10 object-cover rounded-full border border-white/30 shadow">
+                    <span class="text-xl font-bold">📦 ระบบจัดการคลังวัสดุ</span>
+                </div>
+                <div class="flex items-center space-x-4 text-sm">
+                    <span id="user-display" class="hidden sm:inline"></span>
+                    <button onclick="handleLogout()" class="bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-md transition text-white">
+                        ออกจากระบบ
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content & Tabs -->
+        <div class="max-w-7xl mx-auto p-4 sm:p-6">
+            <!-- Tab Menu Navigation -->
+            <div class="flex flex-wrap border-b border-slate-200 mb-6 bg-white rounded-t-lg shadow-sm px-2 pt-2 gap-2">
+                <button onclick="switchTab('summary')" id="tab-btn-summary" class="tab-btn active px-4 py-2.5 font-medium border-b-2 border-sky-600 text-sky-600">📦 สรุปคงเหลือ</button>
+                <button onclick="switchTab('receive')" id="tab-btn-receive" class="tab-btn px-4 py-2.5 font-medium text-slate-500 border-b-2 border-transparent">📥 บันทึกรับเข้า</button>
+                <button onclick="switchTab('rec-history')" id="tab-btn-rec-history" class="tab-btn px-4 py-2.5 font-medium text-slate-500 border-b-2 border-transparent">📋 ประวัติรับเข้า</button>
+                <button onclick="switchTab('issue')" id="tab-btn-issue" class="tab-btn px-4 py-2.5 font-medium text-slate-500 border-b-2 border-transparent">📤 บันทึกเบิกจ่าย</button>
+                <button onclick="switchTab('issue-history')" id="tab-btn-issue-history" class="tab-btn px-4 py-2.5 font-medium text-slate-500 border-b-2 border-transparent">📋 ประวัติเบิกจ่าย</button>
+            </div>
+
+            <!-- Tab 1: สรุปคงเหลือ -->
+            <div id="tab-summary" class="tab-content bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h2 class="text-lg font-bold text-slate-800 mb-4">รายการวัสดุคงเหลือในคลัง</h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-700 text-sm">
+                                <th class="p-3 rounded-l-lg">รหัส</th>
+                                <th class="p-3">ชื่อวัสดุ</th>
+                                <th class="p-3 text-right">จำนวนคงเหลือรวม</th>
+                                <th class="p-3 text-center">หน่วยนับ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="summary-table-body" class="divide-y divide-slate-100 text-sm"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab 2: บันทึกรับเข้า -->
+            <div id="tab-receive" class="tab-content hidden bg-white p-6 rounded-xl shadow-sm border border-slate-200 max-w-2xl mx-auto">
+                <h2 class="text-lg font-bold text-slate-800 mb-4">📥 รับวัสดุเข้าคลัง</h2>
+                <form onsubmit="handleReceive(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">ชื่อวัสดุ</label>
+                        <input type="text" id="rec-name" required class="w-full p-2 border rounded-md">
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">หน่วยนับ</label>
+                            <input type="text" id="rec-unit" placeholder="เช่น ด้าม, รีม, กล่อง" required class="w-full p-2 border rounded-md">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">วันที่รับ</label>
+                            <input type="date" id="rec-date" required class="w-full p-2 border rounded-md">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">จำนวนรับเข้า</label>
+                            <input type="number" step="0.01" id="rec-qty" required class="w-full p-2 border rounded-md">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">ราคาต่อหน่วย (บาท)</label>
+                            <input type="number" step="0.01" id="rec-price" required class="w-full p-2 border rounded-md">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">รับจาก / ร้านค้า</label>
+                        <input type="text" id="rec-from" class="w-full p-2 border rounded-md">
+                    </div>
+                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 rounded-md transition">
+                        บันทึกการรับเข้า
+                    </button>
+                </form>
+            </div>
+
+            <!-- Tab 3: ประวัติรับเข้า -->
+            <div id="tab-rec-history" class="tab-content hidden bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h2 class="text-lg font-bold text-slate-800 mb-4">📋 ประวัติการรับเข้า (Stock In)</h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-700 text-sm">
+                                <th class="p-3">เลขล็อต</th>
+                                <th class="p-3">วันที่รับ</th>
+                                <th class="p-3">ชื่อวัสดุ</th>
+                                <th class="p-3 text-right">จำนวนรับ</th>
+                                <th class="p-3 text-right">คงเหลือ</th>
+                                <th class="p-3 text-right">ราคา/หน่วย</th>
+                                <th class="p-3">รับจาก</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rec-history-tbody" class="divide-y divide-slate-100 text-sm"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab 4: บันทึกเบิกจ่าย -->
+            <div id="tab-issue" class="tab-content hidden bg-white p-6 rounded-xl shadow-sm border border-slate-200 max-w-2xl mx-auto">
+                <h2 class="text-lg font-bold text-slate-800 mb-4">📤 เบิกจ่ายวัสดุ (FIFO)</h2>
+                <form onsubmit="handleIssue(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">เลือกวัสดุ</label>
+                        <select id="issue-mat-select" required class="w-full p-2 border rounded-md">
+                            <option value="">-- เลือกรายการวัสดุ --</option>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">วันที่เบิก</label>
+                            <input type="date" id="issue-date" required class="w-full p-2 border rounded-md">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">จำนวนที่เบิก</label>
+                            <input type="number" step="0.01" id="issue-qty" required class="w-full p-2 border rounded-md">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">ผู้เบิก / หน่วยงาน</label>
+                        <input type="text" id="issue-to" class="w-full p-2 border rounded-md">
+                    </div>
+                    <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-medium py-2 rounded-md transition">
+                        ยืนยันการเบิกจ่าย
+                    </button>
+                </form>
+            </div>
+
+            <!-- Tab 5: ประวัติเบิกจ่าย -->
+            <div id="tab-issue-history" class="tab-content hidden bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h2 class="text-lg font-bold text-slate-800 mb-4">📋 ประวัติการเบิกจ่าย (Stock Out)</h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-700 text-sm">
+                                <th class="p-3">เลขที่เบิก</th>
+                                <th class="p-3">วันที่เบิก</th>
+                                <th class="p-3">ชื่อวัสดุ</th>
+                                <th class="p-3 text-right">จำนวนเบิก</th>
+                                <th class="p-3 text-right">ราคา/หน่วย</th>
+                                <th class="p-3">ผู้เบิก / แผนก</th>
+                                <th class="p-3 text-center">ตัดจากล็อต</th>
+                            </tr>
+                        </thead>
+                        <tbody id="issue-history-tbody" class="divide-y divide-slate-100 text-sm"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('login-error');
+
+            const { data, error } = await _supabase.auth.signInWithPassword({ email, password });
+            if (error) {
+                errorDiv.innerText = "เข้าสู่ระบบไม่สำเร็จ: " + error.message;
+                errorDiv.classList.remove('hidden');
+            } else {
+                errorDiv.classList.add('hidden');
+                checkSession();
+            }
+        }
+
+        async function handleLogout() {
+            await _supabase.auth.signOut();
+            checkSession();
+        }
+
+        async function checkSession() {
+            const { data: { session } } = await _supabase.auth.getSession();
+            if (session) {
+                document.getElementById('login-page').classList.add('hidden');
+                document.getElementById('app-page').classList.remove('hidden');
+                document.getElementById('user-display').innerText = session.user.email;
+                loadSummaryData();
+                loadMaterialsOption();
+                loadReceiveHistory();
+                loadIssueHistory();
+            } else {
+                document.getElementById('login-page').classList.remove('hidden');
+                document.getElementById('app-page').classList.add('hidden');
+            }
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('border-sky-600', 'text-sky-600');
+                el.classList.add('border-transparent', 'text-slate-500');
+            });
+
+            document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+            document.getElementById(`tab-btn-${tabName}`).classList.add('border-sky-600', 'text-sky-600');
+            
+            if(tabName === 'summary') loadSummaryData();
+            if(tabName === 'receive') {
+                document.getElementById('rec-date').valueAsDate = new Date();
+            }
+            if(tabName === 'rec-history') loadReceiveHistory();
+            if(tabName === 'issue') {
+                loadMaterialsOption();
+                document.getElementById('issue-date').valueAsDate = new Date();
+            }
+            if(tabName === 'issue-history') loadIssueHistory();
+        }
+
+        async function loadSummaryData() {
+            const { data: materials } = await _supabase.from('materials').select('*, stock_in(qty_remaining)');
+            const tbody = document.getElementById('summary-table-body');
+            tbody.innerHTML = '';
+            if(!materials) return;
+            materials.forEach(item => {
+                const totalQty = item.stock_in ? item.stock_in.reduce((sum, s) => sum + (s.qty_remaining || 0), 0) : 0;
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 text-slate-500">${item.material_id}</td>
+                        <td class="p-3 font-medium text-slate-800">${item.material_name}</td>
+                        <td class="p-3 text-right font-semibold text-sky-700">${totalQty.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                        <td class="p-3 text-center">${item.unit}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function loadReceiveHistory() {
+            const { data } = await _supabase.from('stock_in').select('*, materials(material_name, unit)').order('lot_id', { ascending: false });
+            const tbody = document.getElementById('rec-history-tbody');
+            tbody.innerHTML = '';
+            if(!data) return;
+            data.forEach(s => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 text-center font-medium">#${s.lot_id}</td>
+                        <td class="p-3">${s.received_date}</td>
+                        <td class="p-3">${s.materials?.material_name || '-'}</td>
+                        <td class="p-3 text-right">${s.qty_received.toLocaleString('th-TH', {minimumFractionDigits: 2})} ${s.materials?.unit || ''}</td>
+                        <td class="p-3 text-right text-emerald-600 font-semibold">${s.qty_remaining.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                        <td class="p-3 text-right">${s.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                        <td class="p-3">${s.received_from || '-'}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function loadIssueHistory() {
+            const { data } = await _supabase.from('stock_out').select('*, stock_in(materials(material_name, unit))').order('issue_id', { ascending: false });
+            const tbody = document.getElementById('issue-history-tbody');
+            tbody.innerHTML = '';
+            if(!data) return;
+            data.forEach(o => {
+                const matName = o.stock_in?.materials?.material_name || '-';
+                const unit = o.stock_in?.materials?.unit || '';
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 text-center font-medium">#${o.issue_id}</td>
+                        <td class="p-3">${o.issue_date}</td>
+                        <td class="p-3">${matName}</td>
+                        <td class="p-3 text-right text-rose-600 font-semibold">${o.qty_issued.toLocaleString('th-TH', {minimumFractionDigits: 2})} ${unit}</td>
+                        <td class="p-3 text-right">${o.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                        <td class="p-3">${o.issued_to || '-'}</td>
+                        <td class="p-3 text-center">ล็อต #${o.lot_id}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function loadMaterialsOption() {
+            const { data: materials } = await _supabase.from('materials').select('*').order('material_name');
+            const select = document.getElementById('issue-mat-select');
+            select.innerHTML = '<option value="">-- เลือกรายการวัสดุ --</option>';
+            if(materials) {
+                materials.forEach(m => {
+                    select.innerHTML += `<option value="${m.material_id}">${m.material_name} (${m.unit})</option>`;
+                });
+            }
+        }
+
+        async function handleReceive(e) {
+            e.preventDefault();
+            const name = document.getElementById('rec-name').value.trim();
+            const unit = document.getElementById('rec-unit').value.trim();
+            const date = document.getElementById('rec-date').value;
+            const qty = parseFloat(document.getElementById('rec-qty').value);
+            const price = parseFloat(document.getElementById('rec-price').value);
+            const from = document.getElementById('rec-from').value.trim();
+
+            let { data: mat } = await _supabase.from('materials').select('material_id').eq('material_name', name).maybeSingle();
+            let material_id = mat ? mat.material_id : null;
+
+            if (!material_id) {
+                const { data: newMat, error: errMat } = await _supabase.from('materials').insert([{ material_name: name, unit: unit }]).select().single();
+                if(errMat) {
+                    alert('เกิดข้อผิดพลาดในการสร้างวัสดุ: ' + errMat.message);
+                    return;
+                }
+                material_id = newMat.material_id;
+            }
+
+            const { error: errStock } = await _supabase.from('stock_in').insert([{
+                material_id: material_id,
+                received_date: date,
+                qty_received: qty,
+                qty_remaining: qty,
+                unit_price: price,
+                received_from: from
+            }]);
+
+            if(errStock) {
+                alert('เกิดข้อผิดพลาดในการบันทึกรับเข้า: ' + errStock.message);
+            } else {
+                alert('บันทึกการรับวัสดุเข้าคลังเรียบร้อยแล้ว');
+                e.target.reset();
+                document.getElementById('rec-date').valueAsDate = new Date();
+                loadSummaryData();
+            }
+        }
+
+        async function handleIssue(e) {
+            e.preventDefault();
+            const material_id = parseInt(document.getElementById('issue-mat-select').value);
+            const date = document.getElementById('issue-date').value;
+            let qtyNeeded = parseFloat(document.getElementById('issue-qty').value);
+            const issued_to = document.getElementById('issue-to').value.trim();
+
+            // ดึงล็อตที่ยังมีของเหลืออยู่ (FIFO: เรียงจาก lot_id น้อยไปมาก)
+            const { data: lots, error } = await _supabase.from('stock_in')
+                .select('*')
+                .eq('material_id', material_id)
+                .gt('qty_remaining', 0)
+                .order('lot_id', { ascending: true });
+
+            if(error || !lots || lots.length === 0) {
+                alert('ไม่พบสต็อกคงเหลือสำหรับวัสดุนี้');
+                return;
+            }
+
+            const totalAvailable = lots.reduce((sum, l) => sum + l.qty_remaining, 0);
+            if(qtyNeeded > totalAvailable) {
+                alert(`สินค้าไม่พอเบิก! ต้องการเบิก ${qtyNeeded} แต่มีคงเหลือรวมเพียง ${totalAvailable}`);
+                return;
+            }
+
+            // ทำการตัดสต็อกทีละล็อต
+            for (let lot of lots) {
+                if (qtyNeeded <= 0) break;
+
+                let deduct = 0;
+                if (lot.qty_remaining >= qtyNeeded) {
+                    deduct = qtyNeeded;
+                    qtyNeeded = 0;
+                } else {
+                    deduct = lot.qty_remaining;
+                    qtyNeeded -= lot.qty_remaining;
+                }
+
+                // อัปเดตยอดคงเหลือใน stock_in
+                await _supabase.from('stock_in')
+                    .update({ qty_remaining: lot.qty_remaining - deduct })
+                    .eq('lot_id', lot.lot_id);
+
+                // บันทึกประวัติใน stock_out
+                await _supabase.from('stock_out').insert([{
+                    lot_id: lot.lot_id,
+                    issue_date: date,
+                    qty_issued: deduct,
+                    unit_price: lot.unit_price,
+                    issued_to: issued_to
+                }]);
+            }
+
+            alert('เบิกจ่ายวัสดุสำเร็จเรียบร้อย!');
+            e.target.reset();
+            document.getElementById('issue-date').valueAsDate = new Date();
+            loadSummaryData();
+        }
+
+        // ตรวจสอบ Session เมื่อเปิดเว็บ
+        checkSession();
+    </script>
+</body>
+</html>
