@@ -81,7 +81,8 @@
             <div id="tab-summary" class="tab-content bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                 <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
                     <h2 class="text-lg font-bold text-slate-800">รายการวัสดุคงเหลือในคลัง</h2>
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="backupDatabase()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">💾 สำรองข้อมูลระบบ</button>
                         <button onclick="exportSummaryExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📊 ส่งออกเฉพาะวัสดุที่เหลือ (Excel)</button>
                         <button onclick="deleteSelectedMaterial()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">❌ ลบชื่อวัสดุที่เลือก</button>
                     </div>
@@ -305,7 +306,37 @@
             if(tabName === 'issue-history') loadIssueHistory();
         }
 
-        // --- 1. สรุปคงเหลือ (คำนวณมูลค่ารวมแยกตามแต่ละล็อต) ---
+        // --- ฟังก์ชันสำรองข้อมูลระบบ (Backup Database to JSON) ---
+        async function backupDatabase() {
+            try {
+                const { data: materials } = await _supabase.from('materials').select('*');
+                const { data: stockIns } = await _supabase.from('stock_in').select('*');
+                const { data: stockOuts } = await _supabase.from('stock_out').select('*');
+
+                const backupData = {
+                    export_date: new Date().toISOString(),
+                    materials: materials || [],
+                    stock_in: stockIns || [],
+                    stock_out: stockOuts || []
+                };
+
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+                const downloadAnchor = document.createElement('a');
+                downloadAnchor.setAttribute("href", dataStr);
+                
+                const dateStr = new Date().toISOString().slice(0, 10);
+                downloadAnchor.setAttribute("download", `inventory_backup_${dateStr}.json`);
+                document.body.appendChild(downloadAnchor);
+                downloadAnchor.click();
+                downloadAnchor.remove();
+
+                alert('สำรองข้อมูลระบบสำเร็จเรียบร้อยแล้ว!');
+            } catch (err) {
+                alert('เกิดข้อผิดพลาดในการสำรองข้อมูล: ' + err.message);
+            }
+        }
+
+        // --- 1. สรุปคงเหลือ ---
         async function loadSummaryData() {
             const { data: materials } = await _supabase.from('materials').select('*');
             const { data: stockIns } = await _supabase.from('stock_in').select('lot_id, material_id, qty_remaining, unit_price');
@@ -321,8 +352,6 @@
             materials.forEach(item => {
                 const itemLots = stockIns ? stockIns.filter(s => s.material_id === item.material_id) : [];
                 const totalQty = itemLots.reduce((sum, s) => sum + (s.qty_remaining || 0), 0);
-                
-                // คำนวณมูลค่ารวม: นำจำนวนคงเหลือของแต่ละล็อต คูณด้วยราคาต่อหน่วยของล็อตนั้น แล้วนำมารวมกันทุก็อต
                 const totalValue = itemLots.reduce((sum, s) => sum + ((s.qty_remaining || 0) * (s.unit_price || 0)), 0);
 
                 tbody.innerHTML += `
@@ -338,7 +367,6 @@
             });
         }
 
-        // ส่งออกเฉพาะวัสดุที่มีจำนวนคงเหลือมากกว่า 0 (ไม่เอาตัวที่เหลือ 0) และคำนวณมูลค่าตามล็อต
         function exportSummaryExcel() {
             const dataToExport = [];
 
@@ -346,7 +374,6 @@
                 const itemLots = allStockInsCache.filter(s => s.material_id === item.material_id);
                 const totalQty = itemLots.reduce((sum, s) => sum + (s.qty_remaining || 0), 0);
                 
-                // กรองเฉพาะวัสดุที่มีจำนวนคงเหลือ > 0 เท่านั้น
                 if (totalQty > 0) {
                     const totalValue = itemLots.reduce((sum, s) => sum + ((s.qty_remaining || 0) * (s.unit_price || 0)), 0);
                     dataToExport.push({
