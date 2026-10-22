@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Supabase JS Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- SheetJS (xlsx) สำหรับส่งออกไฟล์ Excel บนหน้าเว็บ -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Sarabun', sans-serif; }
@@ -22,7 +24,6 @@
         const SUPABASE_ANON_KEY = 'sb_publishable__0KAOXCyM13SpC6S9DpfOw_ZKHUF4jd';
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         
-        // ลิงก์โลโก้ของคุณ
         const LOGO_URL = 'https://pdoojfiwedjbrjvjtqth.supabase.co/storage/v1/object/public/logo/logo.jpg';
     </script>
 
@@ -30,7 +31,6 @@
     <div id="login-page" class="flex items-center justify-center min-h-screen p-4">
         <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-100">
             <div class="text-center mb-6">
-                <!-- โลโก้หน้า Login -->
                 <div class="flex justify-center mb-4">
                     <img src="https://pdoojfiwedjbrjvjtqth.supabase.co/storage/v1/object/public/logo/logo.jpg" alt="Logo" class="w-20 h-20 object-cover rounded-full shadow-md border">
                 </div>
@@ -60,7 +60,6 @@
         <nav class="bg-sky-800 text-white shadow-md">
             <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
                 <div class="flex items-center space-x-3">
-                    <!-- โลโก้ Navbar -->
                     <img src="https://pdoojfiwedjbrjvjtqth.supabase.co/storage/v1/object/public/logo/logo.jpg" alt="Logo" class="w-10 h-10 object-cover rounded-full border border-white/30 shadow">
                     <span class="text-xl font-bold">📦 ระบบจัดการคลังวัสดุ</span>
                 </div>
@@ -86,12 +85,19 @@
 
             <!-- Tab 1: สรุปคงเหลือ -->
             <div id="tab-summary" class="tab-content bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <h2 class="text-lg font-bold text-slate-800 mb-4">รายการวัสดุคงเหลือในคลัง</h2>
+                <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
+                    <h2 class="text-lg font-bold text-slate-800">รายการวัสดุคงเหลือในคลัง</h2>
+                    <div class="flex gap-2">
+                        <button onclick="exportSummaryExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📊 ส่งออก Excel</button>
+                        <button onclick="deleteSelectedMaterial()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">❌ ลบชื่อวัสดุที่เลือก</button>
+                    </div>
+                </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-100 text-slate-700 text-sm">
-                                <th class="p-3 rounded-l-lg">รหัส</th>
+                                <th class="p-3 rounded-l-lg text-center w-16">เลือก</th>
+                                <th class="p-3">รหัส</th>
                                 <th class="p-3">ชื่อวัสดุ</th>
                                 <th class="p-3 text-right">จำนวนคงเหลือรวม</th>
                                 <th class="p-3 text-center">หน่วยนับ</th>
@@ -107,8 +113,13 @@
                 <h2 class="text-lg font-bold text-slate-800 mb-4">📥 รับวัสดุเข้าคลัง</h2>
                 <form onsubmit="handleReceive(event)" class="space-y-4">
                     <div>
-                        <label class="block text-sm font-medium mb-1">ชื่อวัสดุ</label>
-                        <input type="text" id="rec-name" required class="w-full p-2 border rounded-md">
+                        <label class="block text-sm font-medium mb-1">🔍 ค้นหาวัสดุที่มีอยู่แล้ว</label>
+                        <input type="text" id="rec-search" placeholder="พิมพ์ชื่อเพื่อค้นหาวัสดุเดิม..." class="w-full p-2 border rounded-md mb-2" oninput="filterReceiveMaterials()">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">เลือกหรือพิมพ์ชื่อวัสดุ</label>
+                        <input type="text" id="rec-name" list="materials-datalist" required class="w-full p-2 border rounded-md" onchange="onReceiveMaterialSelected()">
+                        <datalist id="materials-datalist"></datalist>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
@@ -142,11 +153,18 @@
 
             <!-- Tab 3: ประวัติรับเข้า -->
             <div id="tab-rec-history" class="tab-content hidden bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <h2 class="text-lg font-bold text-slate-800 mb-4">📋 ประวัติการรับเข้า (Stock In)</h2>
+                <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
+                    <h2 class="text-lg font-bold text-slate-800">📋 ประวัติการรับเข้า (Stock In)</h2>
+                    <div class="flex gap-2">
+                        <button onclick="exportReceiveExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📊 ส่งออก Excel</button>
+                        <button onclick="deleteSelectedReceiveLot()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">🗑️ ลบล็อตที่เลือก</button>
+                    </div>
+                </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-100 text-slate-700 text-sm">
+                                <th class="p-3 text-center w-16">เลือก</th>
                                 <th class="p-3">เลขล็อต</th>
                                 <th class="p-3">วันที่รับ</th>
                                 <th class="p-3">ชื่อวัสดุ</th>
@@ -165,6 +183,10 @@
             <div id="tab-issue" class="tab-content hidden bg-white p-6 rounded-xl shadow-sm border border-slate-200 max-w-2xl mx-auto">
                 <h2 class="text-lg font-bold text-slate-800 mb-4">📤 เบิกจ่ายวัสดุ (FIFO)</h2>
                 <form onsubmit="handleIssue(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">🔍 ค้นหาชื่อวัสดุที่จะเบิก</label>
+                        <input type="text" id="issue-search" placeholder="พิมพ์ชื่อเพื่อกรองรายการวัสดุ..." class="w-full p-2 border rounded-md mb-2" oninput="filterIssueMaterials()">
+                    </div>
                     <div>
                         <label class="block text-sm font-medium mb-1">เลือกวัสดุ</label>
                         <select id="issue-mat-select" required class="w-full p-2 border rounded-md">
@@ -193,11 +215,18 @@
 
             <!-- Tab 5: ประวัติเบิกจ่าย -->
             <div id="tab-issue-history" class="tab-content hidden bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <h2 class="text-lg font-bold text-slate-800 mb-4">📋 ประวัติการเบิกจ่าย (Stock Out)</h2>
+                <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
+                    <h2 class="text-lg font-bold text-slate-800">📋 ประวัติการเบิกจ่าย (Stock Out)</h2>
+                    <div class="flex gap-2">
+                        <button onclick="exportIssueExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📊 ส่งออก Excel</button>
+                        <button onclick="deleteSelectedIssue()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">🗑️ ยกเลิกการเบิกที่เลือก</button>
+                    </div>
+                </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-100 text-slate-700 text-sm">
+                                <th class="p-3 text-center w-16">เลือก</th>
                                 <th class="p-3">เลขที่เบิก</th>
                                 <th class="p-3">วันที่เบิก</th>
                                 <th class="p-3">ชื่อวัสดุ</th>
@@ -217,6 +246,10 @@
 
     <!-- Application Script -->
     <script>
+        let allMaterialsCache = [];
+        let allStockInsCache = [];
+        let allStockOutsCache = [];
+
         async function handleLogin(e) {
             e.preventDefault();
             const email = document.getElementById('email').value;
@@ -267,6 +300,7 @@
             if(tabName === 'summary') loadSummaryData();
             if(tabName === 'receive') {
                 document.getElementById('rec-date').valueAsDate = new Date();
+                loadMaterialsDatalist();
             }
             if(tabName === 'rec-history') loadReceiveHistory();
             if(tabName === 'issue') {
@@ -276,15 +310,26 @@
             if(tabName === 'issue-history') loadIssueHistory();
         }
 
+        // --- 1. สรุปคงเหลือ ---
         async function loadSummaryData() {
-            const { data: materials } = await _supabase.from('materials').select('*, stock_in(qty_remaining)');
+            const { data: materials } = await _supabase.from('materials').select('*');
+            const { data: stockIns } = await _supabase.from('stock_in').select('material_id, qty_remaining, unit_price');
+            
+            allMaterialsCache = materials || [];
+            allStockInsCache = stockIns || [];
+
             const tbody = document.getElementById('summary-table-body');
             tbody.innerHTML = '';
+            
             if(!materials) return;
+
             materials.forEach(item => {
-                const totalQty = item.stock_in ? item.stock_in.reduce((sum, s) => sum + (s.qty_remaining || 0), 0) : 0;
+                const itemLots = stockIns ? stockIns.filter(s => s.material_id === item.material_id) : [];
+                const totalQty = itemLots.reduce((sum, s) => sum + (s.qty_remaining || 0), 0);
+
                 tbody.innerHTML += `
                     <tr class="hover:bg-slate-50">
+                        <td class="p-3 text-center"><input type="radio" name="selected_mat" value="${item.material_id}" class="accent-sky-600"></td>
                         <td class="p-3 text-slate-500">${item.material_id}</td>
                         <td class="p-3 font-medium text-slate-800">${item.material_name}</td>
                         <td class="p-3 text-right font-semibold text-sky-700">${totalQty.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
@@ -294,56 +339,77 @@
             });
         }
 
-        async function loadReceiveHistory() {
-            const { data } = await _supabase.from('stock_in').select('*, materials(material_name, unit)').order('lot_id', { ascending: false });
-            const tbody = document.getElementById('rec-history-tbody');
-            tbody.innerHTML = '';
-            if(!data) return;
-            data.forEach(s => {
-                tbody.innerHTML += `
-                    <tr class="hover:bg-slate-50">
-                        <td class="p-3 text-center font-medium">#${s.lot_id}</td>
-                        <td class="p-3">${s.received_date}</td>
-                        <td class="p-3">${s.materials?.material_name || '-'}</td>
-                        <td class="p-3 text-right">${s.qty_received.toLocaleString('th-TH', {minimumFractionDigits: 2})} ${s.materials?.unit || ''}</td>
-                        <td class="p-3 text-right text-emerald-600 font-semibold">${s.qty_remaining.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                        <td class="p-3 text-right">${s.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                        <td class="p-3">${s.received_from || '-'}</td>
-                    </tr>
-                `;
+        function exportSummaryExcel() {
+            const dataToExport = allMaterialsCache.map(item => {
+                const itemLots = allStockInsCache.filter(s => s.material_id === item.material_id);
+                const totalQty = itemLots.reduce((sum, s) => sum + (s.qty_remaining || 0), 0);
+                return {
+                    "รหัสวัสดุ": item.material_id,
+                    "ชื่อวัสดุ": item.material_name,
+                    "จำนวนคงเหลือรวม": totalQty,
+                    "หน่วยนับ": item.unit
+                };
             });
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "สรุปวัสดุคงเหลือ");
+            XLSX.writeFile(workbook, "summary_inventory.xlsx");
         }
 
-        async function loadIssueHistory() {
-            const { data } = await _supabase.from('stock_out').select('*, stock_in(materials(material_name, unit))').order('issue_id', { ascending: false });
-            const tbody = document.getElementById('issue-history-tbody');
-            tbody.innerHTML = '';
-            if(!data) return;
-            data.forEach(o => {
-                const matName = o.stock_in?.materials?.material_name || '-';
-                const unit = o.stock_in?.materials?.unit || '';
-                tbody.innerHTML += `
-                    <tr class="hover:bg-slate-50">
-                        <td class="p-3 text-center font-medium">#${o.issue_id}</td>
-                        <td class="p-3">${o.issue_date}</td>
-                        <td class="p-3">${matName}</td>
-                        <td class="p-3 text-right text-rose-600 font-semibold">${o.qty_issued.toLocaleString('th-TH', {minimumFractionDigits: 2})} ${unit}</td>
-                        <td class="p-3 text-right">${o.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                        <td class="p-3">${o.issued_to || '-'}</td>
-                        <td class="p-3 text-center">ล็อต #${o.lot_id}</td>
-                    </tr>
-                `;
-            });
+        async function deleteSelectedMaterial() {
+            const selected = document.querySelector('input[name="selected_mat"]:checked');
+            if(!selected) {
+                alert('กรุณาคลิกเลือกรายการวัสดุที่ต้องการลบก่อนครับ');
+                return;
+            }
+            const matId = parseInt(selected.value);
+            const mat = allMaterialsCache.find(m => m.material_id === matId);
+
+            if(!confirm(`คุณต้องการลบชื่อวัสดุ '${mat?.material_name}' พร้อมประวัติทั้งหมดใช่หรือไม่?`)) return;
+
+            // ลบ stock_out, stock_in และ materials
+            const { data: lots } = await _supabase.from('stock_in').select('lot_id').eq('material_id', matId);
+            if(lots && lots.length > 0) {
+                const lotIds = lots.map(l => l.lot_id);
+                await _supabase.from('stock_out').delete().in('lot_id', lotIds);
+                await _supabase.from('stock_in').delete().eq('material_id', matId);
+            }
+            await _supabase.from('materials').delete().eq('material_id', matId);
+
+            alert('ลบรายการวัสดุเรียบร้อยแล้ว');
+            loadSummaryData();
         }
 
-        async function loadMaterialsOption() {
+        // --- 2. บันทึกรับเข้า & ช่องค้นหาวัสดุเดิม ---
+        async function loadMaterialsDatalist() {
             const { data: materials } = await _supabase.from('materials').select('*').order('material_name');
-            const select = document.getElementById('issue-mat-select');
-            select.innerHTML = '<option value="">-- เลือกรายการวัสดุ --</option>';
-            if(materials) {
-                materials.forEach(m => {
-                    select.innerHTML += `<option value="${m.material_id}">${m.material_name} (${m.unit})</option>`;
-                });
+            allMaterialsCache = materials || [];
+            renderDatalist(allMaterialsCache);
+        }
+
+        function renderDatalist(list) {
+            const datalist = document.getElementById('materials-datalist');
+            datalist.innerHTML = '';
+            list.forEach(m => {
+                datalist.innerHTML += `<option value="${m.material_name}" data-unit="${m.unit}"></option>`;
+            });
+        }
+
+        function filterReceiveMaterials() {
+            const keyword = document.getElementById('rec-search').value.toLowerCase();
+            const filtered = allMaterialsCache.filter(m => m.material_name.toLowerCase().includes(keyword));
+            renderDatalist(filtered);
+            if(filtered.length === 1) {
+                document.getElementById('rec-name').value = filtered[0].material_name;
+                document.getElementById('rec-unit').value = filtered[0].unit;
+            }
+        }
+
+        function onReceiveMaterialSelected() {
+            const name = document.getElementById('rec-name').value;
+            const found = allMaterialsCache.find(m => m.material_name === name);
+            if(found) {
+                document.getElementById('rec-unit').value = found.unit;
             }
         }
 
@@ -362,13 +428,13 @@
             if (!material_id) {
                 const { data: newMat, error: errMat } = await _supabase.from('materials').insert([{ material_name: name, unit: unit }]).select().single();
                 if(errMat) {
-                    alert('เกิดข้อผิดพลาดในการสร้างวัสดุ: ' + errMat.message);
+                    alert('เกิดข้อผิดพลาด: ' + errMat.message);
                     return;
                 }
                 material_id = newMat.material_id;
             }
 
-            const { error: errStock } = await _supabase.from('stock_in').insert([{
+            await _supabase.from('stock_in').insert([{
                 material_id: material_id,
                 received_date: date,
                 qty_received: qty,
@@ -377,14 +443,97 @@
                 received_from: from
             }]);
 
-            if(errStock) {
-                alert('เกิดข้อผิดพลาดในการบันทึกรับเข้า: ' + errStock.message);
-            } else {
-                alert('บันทึกการรับวัสดุเข้าคลังเรียบร้อยแล้ว');
-                e.target.reset();
-                document.getElementById('rec-date').valueAsDate = new Date();
-                loadSummaryData();
+            alert('บันทึกการรับวัสดุเข้าคลังเรียบร้อยแล้ว');
+            e.target.reset();
+            document.getElementById('rec-date').valueAsDate = new Date();
+            loadMaterialsDatalist();
+        }
+
+        // --- 3. ประวัติรับเข้า ---
+        async function loadReceiveHistory() {
+            const { data } = await _supabase.from('stock_in').select('*, materials(material_name, unit)').order('lot_id', { ascending: false });
+            allStockInsCache = data || [];
+            const tbody = document.getElementById('rec-history-tbody');
+            tbody.innerHTML = '';
+            if(!data) return;
+            data.forEach(s => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 text-center"><input type="radio" name="selected_lot" value="${s.lot_id}" class="accent-sky-600"></td>
+                        <td class="p-3 font-medium">#${s.lot_id}</td>
+                        <td class="p-3">${s.received_date}</td>
+                        <td class="p-3">${s.materials?.material_name || '-'}</td>
+                        <td class="p-3 text-right">${s.qty_received.toLocaleString('th-TH', {minimumFractionDigits: 2})} ${s.materials?.unit || ''}</td>
+                        <td class="p-3 text-right text-emerald-600 font-semibold">${s.qty_remaining.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                        <td class="p-3 text-right">${s.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                        <td class="p-3">${s.received_from || '-'}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function exportReceiveExcel() {
+            const dataToExport = allStockInsCache.map(s => ({
+                "เลขล็อต": s.lot_id,
+                "วันที่รับ": s.received_date,
+                "ชื่อวัสดุ": s.materials?.material_name || '-',
+                "จำนวนรับ": s.qty_received,
+                "คงเหลือ": s.qty_remaining,
+                "ราคาต่อหน่วย": s.unit_price,
+                "หน่วยนับ": s.materials?.unit || '',
+                "รับจาก": s.received_from || '-'
+            }));
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "ประวัติรับเข้า");
+            XLSX.writeFile(workbook, "receive_history.xlsx");
+        }
+
+        async function deleteSelectedReceiveLot() {
+            const selected = document.querySelector('input[name="selected_lot"]:checked');
+            if(!selected) {
+                alert('กรุณาเลือกรายการล็อตรับเข้าที่ต้องการลบก่อนครับ');
+                return;
             }
+            const lotId = parseInt(selected.value);
+            const lot = allStockInsCache.find(s => s.lot_id === lotId);
+
+            if(lot.qty_remaining < lot.qty_received) {
+                alert(`ไม่สามารถลบล็อต #${lotId} ได้ เนื่องจากมีการเบิกจ่ายไปบางส่วนแล้ว`);
+                return;
+            }
+
+            if(!confirm(`ยืนยันการลบล็อตรับเข้า #${lotId} (${lot.materials?.material_name}) ใช่หรือไม่?`)) return;
+
+            await _supabase.from('stock_in').delete().eq('lot_id', lotId);
+            alert('ลบล็อตรับเข้าเรียบร้อยแล้ว');
+            loadReceiveHistory();
+        }
+
+        // --- 4. บันทึกเบิกจ่าย & ช่องค้นหาวัสดุเบิก ---
+        async function loadMaterialsOption() {
+            const { data: materials } = await _supabase.from('materials').select('*').order('material_name');
+            const { data: stockIns } = await _supabase.from('stock_in').select('material_id, qty_remaining');
+            
+            allMaterialsCache = materials || [];
+            allStockInsCache = stockIns || [];
+            renderIssueSelect(allMaterialsCache);
+        }
+
+        function renderIssueSelect(list) {
+            const select = document.getElementById('issue-mat-select');
+            select.innerHTML = '<option value="">-- เลือกรายการวัสดุ --</option>';
+            list.forEach(m => {
+                const itemLots = allStockInsCache.filter(s => s.material_id === m.material_id);
+                const totalRem = itemLots.reduce((sum, s) => sum + (s.qty_remaining || 0), 0);
+                select.innerHTML += `<option value="${m.material_id}">${m.material_name} (คงเหลือ: ${totalRem.toLocaleString('th-TH')} ${m.unit})</option>`;
+            });
+        }
+
+        function filterIssueMaterials() {
+            const keyword = document.getElementById('issue-search').value.toLowerCase();
+            const filtered = allMaterialsCache.filter(m => m.material_name.toLowerCase().includes(keyword));
+            renderIssueSelect(filtered);
         }
 
         async function handleIssue(e) {
@@ -394,14 +543,13 @@
             let qtyNeeded = parseFloat(document.getElementById('issue-qty').value);
             const issued_to = document.getElementById('issue-to').value.trim();
 
-            // ดึงล็อตที่ยังมีของเหลืออยู่ (FIFO: เรียงจาก lot_id น้อยไปมาก)
-            const { data: lots, error } = await _supabase.from('stock_in')
+            const { data: lots } = await _supabase.from('stock_in')
                 .select('*')
                 .eq('material_id', material_id)
                 .gt('qty_remaining', 0)
                 .order('lot_id', { ascending: true });
 
-            if(error || !lots || lots.length === 0) {
+            if(!lots || lots.length === 0) {
                 alert('ไม่พบสต็อกคงเหลือสำหรับวัสดุนี้');
                 return;
             }
@@ -412,25 +560,15 @@
                 return;
             }
 
-            // ทำการตัดสต็อกทีละล็อต
             for (let lot of lots) {
                 if (qtyNeeded <= 0) break;
+                let deduct = lot.qty_remaining >= qtyNeeded ? qtyNeeded : lot.qty_remaining;
+                qtyNeeded -= deduct;
 
-                let deduct = 0;
-                if (lot.qty_remaining >= qtyNeeded) {
-                    deduct = qtyNeeded;
-                    qtyNeeded = 0;
-                } else {
-                    deduct = lot.qty_remaining;
-                    qtyNeeded -= lot.qty_remaining;
-                }
-
-                // อัปเดตยอดคงเหลือใน stock_in
                 await _supabase.from('stock_in')
                     .update({ qty_remaining: lot.qty_remaining - deduct })
                     .eq('lot_id', lot.lot_id);
 
-                // บันทึกประวัติใน stock_out
                 await _supabase.from('stock_out').insert([{
                     lot_id: lot.lot_id,
                     issue_date: date,
@@ -443,10 +581,76 @@
             alert('เบิกจ่ายวัสดุสำเร็จเรียบร้อย!');
             e.target.reset();
             document.getElementById('issue-date').valueAsDate = new Date();
-            loadSummaryData();
+            loadMaterialsOption();
         }
 
-        // ตรวจสอบ Session เมื่อเปิดเว็บ
+        // --- 5. ประวัติเบิกจ่าย ---
+        async function loadIssueHistory() {
+            const { data } = await _supabase.from('stock_out').select('*, stock_in(material_id, unit_price, materials(material_name, unit))').order('issue_id', { ascending: false });
+            allStockOutsCache = data || [];
+            const tbody = document.getElementById('issue-history-tbody');
+            tbody.innerHTML = '';
+            if(!data) return;
+            data.forEach(o => {
+                const matName = o.stock_in?.materials?.material_name || '-';
+                const unit = o.stock_in?.materials?.unit || '';
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 text-center"><input type="radio" name="selected_issue" value="${o.issue_id}" class="accent-sky-600"></td>
+                        <td class="p-3 font-medium">#${o.issue_id}</td>
+                        <td class="p-3">${o.issue_date}</td>
+                        <td class="p-3">${matName}</td>
+                        <td class="p-3 text-right text-rose-600 font-semibold">${o.qty_issued.toLocaleString('th-TH', {minimumFractionDigits: 2})} ${unit}</td>
+                        <td class="p-3 text-right">${o.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                        <td class="p-3">${o.issued_to || '-'}</td>
+                        <td class="p-3 text-center">ล็อต #${o.lot_id}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function exportIssueExcel() {
+            const dataToExport = allStockOutsCache.map(o => ({
+                "เลขที่เบิก": o.issue_id,
+                "วันที่เบิก": o.issue_date,
+                "ชื่อวัสดุ": o.stock_in?.materials?.material_name || '-',
+                "จำนวนเบิก": o.qty_issued,
+                "หน่วยนับ": o.stock_in?.materials?.unit || '',
+                "ราคาต่อหน่วย": o.unit_price,
+                "ผู้เบิก / แผนก": o.issued_to || '-',
+                "ตัดจากล็อต": o.lot_id
+            }));
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "ประวัติเบิกจ่าย");
+            XLSX.writeFile(workbook, "issue_history.xlsx");
+        }
+
+        async function deleteSelectedIssue() {
+            const selected = document.querySelector('input[name="selected_issue"]:checked');
+            if(!selected) {
+                alert('กรุณาเลือกรายการเบิกจ่ายที่ต้องการยกเลิกก่อนครับ');
+                return;
+            }
+            const issueId = parseInt(selected.value);
+            const issueItem = allStockOutsCache.find(o => o.issue_id === issueId);
+
+            if(!confirm(`ยืนยันการยกเลิกการเบิกรายการ #${issueId} ใช่หรือไม่? (ระบบจะคืนสต็อกกลับเข้าล็อต #${issueItem.lot_id} อัตโนมัติ)`)) return;
+
+            // 1. ดึงยอด qty_remaining เดิมของล็อตนั้นมาบวกคืน
+            const { data: lotData } = await _supabase.from('stock_in').select('qty_remaining').eq('lot_id', issueItem.lot_id).single();
+            if(lotData) {
+                const newRemaining = lotData.qty_remaining + issueItem.qty_issued;
+                await _supabase.from('stock_in').update({ qty_remaining: newRemaining }).eq('lot_id', issueItem.lot_id);
+            }
+
+            // 2. ลบประวัติการเบิกออก
+            await _supabase.from('stock_out').delete().eq('issue_id', issueId);
+
+            alert('ยกเลิกรายการเบิกและคืนสต็อกเรียบร้อยแล้ว');
+            loadIssueHistory();
+        }
+
         checkSession();
     </script>
 </body>
