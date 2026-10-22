@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Supabase JS Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- SheetJS (xlsx) สำหรับส่งออกไฟล์ Excel บนหน้าเว็บ -->
+    <!-- SheetJS (xlsx) สำหรับส่งออกไฟล์ Excel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -23,17 +23,12 @@
         const SUPABASE_URL = 'https://pdoojfiwedjbrjvjtqth.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable__0KAOXCyM13SpC6S9DpfOw_ZKHUF4jd';
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        
-        const LOGO_URL = 'https://pdoojfiwedjbrjvjtqth.supabase.co/storage/v1/object/public/logo/logo.jpg';
     </script>
 
     <!-- หน้า Login -->
     <div id="login-page" class="flex items-center justify-center min-h-screen p-4">
         <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-100">
             <div class="text-center mb-6">
-                <div class="flex justify-center mb-4">
-                    <img src="https://pdoojfiwedjbrjvjtqth.supabase.co/storage/v1/object/public/logo/logo.jpg" alt="Logo" class="w-20 h-20 object-cover rounded-full shadow-md border">
-                </div>
                 <h1 class="text-2xl font-bold text-sky-700">เข้าสู่ระบบจัดการคลังวัสดุ</h1>
                 <p class="text-slate-500 text-sm mt-1">กรอกอีเมลและรหัสผ่านเพื่อเข้าใช้งาน</p>
             </div>
@@ -60,7 +55,6 @@
         <nav class="bg-sky-800 text-white shadow-md">
             <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
                 <div class="flex items-center space-x-3">
-                    <img src="https://pdoojfiwedjbrjvjtqth.supabase.co/storage/v1/object/public/logo/logo.jpg" alt="Logo" class="w-10 h-10 object-cover rounded-full border border-white/30 shadow">
                     <span class="text-xl font-bold">📦 ระบบจัดการคลังวัสดุ</span>
                 </div>
                 <div class="flex items-center space-x-4 text-sm">
@@ -367,7 +361,6 @@
 
             if(!confirm(`คุณต้องการลบชื่อวัสดุ '${mat?.material_name}' พร้อมประวัติทั้งหมดใช่หรือไม่?`)) return;
 
-            // ลบ stock_out, stock_in และ materials
             const { data: lots } = await _supabase.from('stock_in').select('lot_id').eq('material_id', matId);
             if(lots && lots.length > 0) {
                 const lotIds = lots.map(l => l.lot_id);
@@ -380,7 +373,7 @@
             loadSummaryData();
         }
 
-        // --- 2. บันทึกรับเข้า & ช่องค้นหาวัสดุเดิม ---
+        // --- 2. บันทึกรับเข้า & ค้นหาวัสดุเดิม ---
         async function loadMaterialsDatalist() {
             const { data: materials } = await _supabase.from('materials').select('*').order('material_name');
             allMaterialsCache = materials || [];
@@ -428,13 +421,13 @@
             if (!material_id) {
                 const { data: newMat, error: errMat } = await _supabase.from('materials').insert([{ material_name: name, unit: unit }]).select().single();
                 if(errMat) {
-                    alert('เกิดข้อผิดพลาด: ' + errMat.message);
+                    alert('เกิดข้อผิดพลาดในการบันทึกวัสดุ: ' + errMat.message);
                     return;
                 }
                 material_id = newMat.material_id;
             }
 
-            await _supabase.from('stock_in').insert([{
+            const { error: errStock } = await _supabase.from('stock_in').insert([{
                 material_id: material_id,
                 received_date: date,
                 qty_received: qty,
@@ -442,6 +435,11 @@
                 unit_price: price,
                 received_from: from
             }]);
+
+            if(errStock) {
+                alert('เกิดข้อผิดพลาดในการบันทึกรับเข้า: ' + errStock.message);
+                return;
+            }
 
             alert('บันทึกการรับวัสดุเข้าคลังเรียบร้อยแล้ว');
             e.target.reset();
@@ -510,7 +508,7 @@
             loadReceiveHistory();
         }
 
-        // --- 4. บันทึกเบิกจ่าย & ช่องค้นหาวัสดุเบิก ---
+        // --- 4. บันทึกเบิกจ่าย & ค้นหาวัสดุเบิก ---
         async function loadMaterialsOption() {
             const { data: materials } = await _supabase.from('materials').select('*').order('material_name');
             const { data: stockIns } = await _supabase.from('stock_in').select('material_id, qty_remaining');
@@ -637,14 +635,12 @@
 
             if(!confirm(`ยืนยันการยกเลิกการเบิกรายการ #${issueId} ใช่หรือไม่? (ระบบจะคืนสต็อกกลับเข้าล็อต #${issueItem.lot_id} อัตโนมัติ)`)) return;
 
-            // 1. ดึงยอด qty_remaining เดิมของล็อตนั้นมาบวกคืน
             const { data: lotData } = await _supabase.from('stock_in').select('qty_remaining').eq('lot_id', issueItem.lot_id).single();
             if(lotData) {
                 const newRemaining = lotData.qty_remaining + issueItem.qty_issued;
                 await _supabase.from('stock_in').update({ qty_remaining: newRemaining }).eq('lot_id', issueItem.lot_id);
             }
 
-            // 2. ลบประวัติการเบิกออก
             await _supabase.from('stock_out').delete().eq('issue_id', issueId);
 
             alert('ยกเลิกรายการเบิกและคืนสต็อกเรียบร้อยแล้ว');
