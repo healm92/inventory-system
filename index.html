@@ -58,7 +58,10 @@
                     <span class="text-xl font-bold">📦 ระบบจัดการคลังวัสดุ</span>
                 </div>
                 <div class="flex items-center space-x-4 text-sm">
-                    <span id="user-display" class="hidden sm:inline"></span>
+                    <div id="user-display" class="flex flex-col text-right">
+                        <span id="user-name" class="font-semibold text-white"></span>
+                        <span id="user-role" class="text-xs text-sky-200"></span>
+                    </div>
                     <button onclick="handleLogout()" class="bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-md transition text-white">
                         ออกจากระบบ
                     </button>
@@ -246,41 +249,45 @@
         let allStockInsCache = [];
         let allStockOutsCache = [];
 
+        // ล็อกอินโดยตรงกับตาราง public.user_profiles
         async function handleLogin(e) {
             e.preventDefault();
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value.trim();
             const errorDiv = document.getElementById('login-error');
 
-            const { data, error } = await _supabase.auth.signInWithPassword({ email, password });
-            if (error) {
-                errorDiv.innerText = "เข้าสู่ระบบไม่สำเร็จ: " + error.message;
+            const { data: user, error } = await _supabase
+                .from('user_profiles')
+                .select('*')
+                .eq('email', email)
+                .eq('password', password)
+                .maybeSingle();
+
+            if (error || !user) {
+                errorDiv.innerText = "เข้าสู่ระบบไม่สำเร็จ: อีเมลหรือรหัสผ่านไม่ถูกต้อง";
                 errorDiv.classList.remove('hidden');
             } else {
                 errorDiv.classList.add('hidden');
-                checkSession();
-            }
-        }
-
-        async function handleLogout() {
-            await _supabase.auth.signOut();
-            checkSession();
-        }
-
-        async function checkSession() {
-            const { data: { session } } = await _supabase.auth.getSession();
-            if (session) {
+                
+                window.currentUserProfile = user;
+                
                 document.getElementById('login-page').classList.add('hidden');
                 document.getElementById('app-page').classList.remove('hidden');
-                document.getElementById('user-display').innerText = session.user.email;
+                
+                document.getElementById('user-name').innerText = user.full_name;
+                document.getElementById('user-role').innerText = user.position || 'เจ้าหน้าที่';
+
                 loadSummaryData();
                 loadMaterialsOption();
                 loadReceiveHistory();
                 loadIssueHistory();
-            } else {
-                document.getElementById('login-page').classList.remove('hidden');
-                document.getElementById('app-page').classList.add('hidden');
             }
+        }
+
+        async function handleLogout() {
+            window.currentUserProfile = null;
+            document.getElementById('login-page').classList.remove('hidden');
+            document.getElementById('app-page').classList.add('hidden');
         }
 
         function switchTab(tabName) {
@@ -312,12 +319,14 @@
                 const { data: materials } = await _supabase.from('materials').select('*');
                 const { data: stockIns } = await _supabase.from('stock_in').select('*');
                 const { data: stockOuts } = await _supabase.from('stock_out').select('*');
+                const { data: profiles } = await _supabase.from('user_profiles').select('*');
 
                 const backupData = {
                     export_date: new Date().toISOString(),
                     materials: materials || [],
                     stock_in: stockIns || [],
-                    stock_out: stockOuts || []
+                    stock_out: stockOuts || [],
+                    user_profiles: profiles || []
                 };
 
                 const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
@@ -420,7 +429,7 @@
             loadSummaryData();
         }
 
-        // --- 2. บันทึกรับเข้า & ค้นหาวัสดุเดิม ---
+        // --- 2. บันทึกรับเข้า ---
         async function loadMaterialsDatalist() {
             const { data: materials } = await _supabase.from('materials').select('*').order('material_name');
             allMaterialsCache = materials || [];
@@ -555,7 +564,7 @@
             loadReceiveHistory();
         }
 
-        // --- 4. บันทึกเบิกจ่าย & ค้นหาวัสดุเบิก ---
+        // --- 4. บันทึกเบิกจ่าย ---
         async function loadMaterialsOption() {
             const { data: materials } = await _supabase.from('materials').select('*').order('material_name');
             const { data: stockIns } = await _supabase.from('stock_in').select('material_id, qty_remaining');
@@ -693,8 +702,6 @@
             alert('ยกเลิกรายการเบิกและคืนสต็อกเรียบร้อยแล้ว');
             loadIssueHistory();
         }
-
-        checkSession();
     </script>
 </body>
 </html>
