@@ -26,6 +26,14 @@
         const SUPABASE_ANON_KEY = 'sb_publishable__0KAOXCyM13SpC6S9DpfOw_ZKHUF4jd';
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+        // 🛡️ [ตั้งค่าความปลอดภัย] รายชื่ออีเมลหรือ UID ที่ได้รับอนุญาตให้ใช้งานระบบคลังวัสดุชุดนี้เท่านั้น
+        // (สามารถเพิ่มอีเมลของเจ้าหน้าที่ที่มีสิทธิ์ใช้งานเว็บนี้ได้ตามต้องการ)
+        const ALLOWED_USERS = [
+            "admin@muangkao.go.th",
+            "toey@muangkao.go.th"
+            // ตัวอย่าง: เพิ่มอีเมลคนอื่นๆ ที่อนุญาตตรงนี้
+        ];
+
         // 🛡️ ฟังก์ชันป้องกัน XSS (Escape HTML Entities)
         function escapeHTML(str) {
             if (str === null || str === undefined) return '';
@@ -285,7 +293,7 @@
         let loginAttempts = 0;
         let loginLockoutUntil = 0;
 
-        // 🛡️ ล็อกอินพร้อมระบบป้องกัน Brute-force เบื้องต้น
+        // 🛡️ ล็อกอินพร้อมระบบตรวจสอบสิทธิ์ UID / อีเมลที่ได้รับอนุญาตเฉพาะเว็บนี้
         async function handleLogin(e) {
             e.preventDefault();
             const now = Date.now();
@@ -305,28 +313,39 @@
             setButtonLoading(btnLogin, true, 'เข้าสู่ระบบ');
 
             try {
-                // รองรับทั้ง Supabase Auth (แนะนำ) และ fallback ตาราง user_profiles เดิม
                 let authenticatedUser = null;
+                let userEmail = email;
 
+                // 1. ตรวจสอบสิทธิ์ผ่าน Supabase Auth
                 const { data: authData, error: authError } = await _supabase.auth.signInWithPassword({
                     email: email,
                     password: password
                 });
 
                 if (!authError && authData?.user) {
+                    userEmail = authData.user.email;
+                    
+                    // 🛡️ [วิธีที่ 2] ตรวจสอบว่า UID / อีเมลนี้อยู่ในรายชื่อที่อนุญาตให้ใช้เว็บนี้หรือไม่
+                    if (ALLOWED_USERS.length > 0 && !ALLOWED_USERS.includes(userEmail)) {
+                        errorDiv.textContent = "บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบของเว็บนี้ครับ";
+                        errorDiv.classList.remove('hidden');
+                        await _supabase.auth.signOut(); // บังคับออกจากระบบทันที
+                        return;
+                    }
+
                     const { data: profile } = await _supabase
                         .from('user_profiles')
                         .select('id, email, full_name, position')
-                        .eq('email', email)
+                        .eq('email', userEmail)
                         .maybeSingle();
 
                     authenticatedUser = profile || {
-                        email: authData.user.email,
-                        full_name: authData.user.email,
+                        email: userEmail,
+                        full_name: userEmail,
                         position: 'เจ้าหน้าที่'
                     };
                 } else {
-                    // Fallback: ตรวจสอบจาก user_profiles (ไม่ดึงคอลัมน์ password กลับมาเก็บในหน่วยความจำ)
+                    // 2. Fallback: ตรวจสอบจากตาราง user_profiles โดยตรง
                     const { data: user, error } = await _supabase
                         .from('user_profiles')
                         .select('id, email, full_name, position')
@@ -335,6 +354,15 @@
                         .maybeSingle();
 
                     if (!error && user) {
+                        userEmail = user.email;
+
+                        // 🛡️ [วิธีที่ 2] ตรวจสอบรายชื่ออนุญาต
+                        if (ALLOWED_USERS.length > 0 && !ALLOWED_USERS.includes(userEmail)) {
+                            errorDiv.textContent = "บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบของเว็บนี้ครับ";
+                            errorDiv.classList.remove('hidden');
+                            return;
+                        }
+
                         authenticatedUser = user;
                     }
                 }
@@ -352,14 +380,13 @@
                 } else {
                     loginAttempts = 0;
                     errorDiv.classList.add('hidden');
-                    document.getElementById('password').value = ''; // ล้างรหัสผ่านออกจาก DOM ทันที
+                    document.getElementById('password').value = ''; // ล้างรหัสผ่านออกจาก DOM
 
                     window.currentUserProfile = authenticatedUser;
 
                     document.getElementById('login-page').classList.add('hidden');
                     document.getElementById('app-page').classList.remove('hidden');
 
-                    // ใช้ textContent เสมอเพื่อป้องกัน XSS
                     document.getElementById('user-name').textContent = authenticatedUser.full_name || '';
                     document.getElementById('user-role').textContent = authenticatedUser.position || 'เจ้าหน้าที่';
 
@@ -411,14 +438,13 @@
             if (tabName === 'issue-history') loadIssueHistory();
         }
 
-        // --- ฟังก์ชันสำรองข้อมูลระบบ (ไม่ดึงคอลัมน์รหัสผ่านมาสำรอง) ---
+        // --- ฟังก์ชันสำรองข้อมูลระบบ ---
         async function backupDatabase() {
             if (!window.currentUserProfile) return;
             try {
                 const { data: materials } = await _supabase.from('materials').select('*');
                 const { data: stockIns } = await _supabase.from('stock_in').select('*');
                 const { data: stockOuts } = await _supabase.from('stock_out').select('*');
-                // ตัดคอลัมน์ password ออกเพื่อความปลอดภัยของข้อมูล
                 const { data: profiles } = await _supabase.from('user_profiles').select('id, email, full_name, position');
 
                 const backupData = {
@@ -447,7 +473,7 @@
             }
         }
 
-        // --- 1. สรุปคงเหลือ (ใช้ DOM API / Escape HTML ป้องกัน XSS 100%) ---
+        // --- 1. สรุปคงเหลือ ---
         async function loadSummaryData() {
             const { data: materials } = await _supabase.from('materials').select('*').order('material_id', { ascending: true });
             const { data: stockIns } = await _supabase.from('stock_in').select('lot_id, material_id, qty_remaining, unit_price');
@@ -580,7 +606,6 @@
             const price = parseFloat(document.getElementById('rec-price').value);
             const from = sanitizeInput(document.getElementById('rec-from').value, 200);
 
-            // Validation ค่าตัวเลขและข้อความ
             if (!name || !unit || !date) {
                 alert('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน');
                 return;
@@ -697,7 +722,7 @@
             loadReceiveHistory();
         }
 
-        // --- 4. บันทึกเบิกจ่าย (ใช้ RPC FIFO + ป้องกันการกดซ้ำ) ---
+        // --- 4. บันทึกเบิกจ่าย ---
         async function loadMaterialsOption() {
             const { data: materials } = await _supabase.from('materials').select('*').order('material_name');
             const { data: stockIns } = await _supabase.from('stock_in').select('material_id, qty_remaining');
@@ -746,7 +771,6 @@
             setButtonLoading(btnSubmit, true, 'ยืนยันการเบิกจ่าย');
 
             try {
-                // ลองเรียกใช้ PostgreSQL RPC (issue_material_fifo) ก่อนเพื่อความเป็น Transaction (Atomicity)
                 const { error: rpcError } = await _supabase.rpc('issue_material_fifo', {
                     p_material_id: material_id,
                     p_issue_date: date,
@@ -763,7 +787,6 @@
                     return;
                 }
 
-                // หากยังไม่ได้สร้าง RPC function บน Supabase ให้ fallback ไปใช้ Logic เดิมแบบปลอดภัย
                 if (rpcError.code === 'PGRST202' || rpcError.message.includes('Could not find the function')) {
                     let remainingToDeduct = qtyNeeded;
                     const { data: lots } = await _supabase.from('stock_in')
