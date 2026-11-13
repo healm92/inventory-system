@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Content Security Policy (CSP) ช่วยป้องกัน XSS และจำกัดแหล่งที่มาของ Script/Connect -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://pdoojfiwedjbrjvjtqth.supabase.co; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://pdoojfiwedjbrjvjtqth.supabase.co wss://pdoojfiwedjbrjvjtqth.supabase.co;">
     <title>ระบบจัดการคลังวัสดุ (Inventory Management)</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -23,6 +25,38 @@
         const SUPABASE_URL = 'https://pdoojfiwedjbrjvjtqth.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable__0KAOXCyM13SpC6S9DpfOw_ZKHUF4jd';
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // 🛡️ ฟังก์ชันป้องกัน XSS (Escape HTML Entities)
+        function escapeHTML(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        // 🛡️ ฟังก์ชันทำความสะอาดและจำกัดความยาว Input
+        function sanitizeInput(str, maxLength = 255) {
+            if (!str) return '';
+            return String(str).trim().slice(0, maxLength);
+        }
+
+        // 🛡️ ฟังก์ชันจัดการสถานะปุ่ม Loading ป้องกันการกดซ้ำ (Double Submission)
+        function setButtonLoading(btn, isLoading, originalText) {
+            if (!btn) return;
+            if (isLoading) {
+                btn.disabled = true;
+                btn.dataset.originalText = btn.innerText;
+                btn.innerText = '⏳ กำลังบันทึก...';
+                btn.classList.add('opacity-60', 'cursor-not-allowed');
+            } else {
+                btn.disabled = false;
+                btn.innerText = originalText || btn.dataset.originalText || 'บันทึก';
+                btn.classList.remove('opacity-60', 'cursor-not-allowed');
+            }
+        }
     </script>
 
     <!-- หน้า Login -->
@@ -35,13 +69,13 @@
             <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
                 <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1">อีเมล</label>
-                    <input type="email" id="email" required class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none">
+                    <input type="email" id="email" required maxlength="150" autocomplete="email" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1">รหัสผ่าน</label>
-                    <input type="password" id="password" required class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none">
+                    <input type="password" id="password" required maxlength="128" autocomplete="current-password" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none">
                 </div>
-                <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-medium py-2.5 rounded-lg transition">
+                <button type="submit" id="btn-login" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-medium py-2.5 rounded-lg transition">
                     เข้าสู่ระบบ
                 </button>
             </form>
@@ -113,17 +147,17 @@
                 <form onsubmit="handleReceive(event)" class="space-y-4">
                     <div>
                         <label class="block text-sm font-medium mb-1">🔍 ค้นหาวัสดุที่มีอยู่แล้ว</label>
-                        <input type="text" id="rec-search" placeholder="พิมพ์ชื่อเพื่อค้นหาวัสดุเดิม..." class="w-full p-2 border rounded-md mb-2" oninput="filterReceiveMaterials()">
+                        <input type="text" id="rec-search" maxlength="100" placeholder="พิมพ์ชื่อเพื่อค้นหาวัสดุเดิม..." class="w-full p-2 border rounded-md mb-2" oninput="filterReceiveMaterials()">
                     </div>
                     <div>
                         <label class="block text-sm font-medium mb-1">เลือกหรือพิมพ์ชื่อวัสดุ</label>
-                        <input type="text" id="rec-name" list="materials-datalist" required class="w-full p-2 border rounded-md" onchange="onReceiveMaterialSelected()">
+                        <input type="text" id="rec-name" list="materials-datalist" required maxlength="200" class="w-full p-2 border rounded-md" onchange="onReceiveMaterialSelected()">
                         <datalist id="materials-datalist"></datalist>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium mb-1">หน่วยนับ</label>
-                            <input type="text" id="rec-unit" placeholder="เช่น ด้าม, รีม, กล่อง" required class="w-full p-2 border rounded-md">
+                            <input type="text" id="rec-unit" placeholder="เช่น ด้าม, รีม, กล่อง" required maxlength="50" class="w-full p-2 border rounded-md">
                         </div>
                         <div>
                             <label class="block text-sm font-medium mb-1">วันที่รับ</label>
@@ -133,18 +167,18 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium mb-1">จำนวนรับเข้า</label>
-                            <input type="number" step="0.01" id="rec-qty" required class="w-full p-2 border rounded-md">
+                            <input type="number" step="0.01" min="0.01" max="10000000" id="rec-qty" required class="w-full p-2 border rounded-md">
                         </div>
                         <div>
                             <label class="block text-sm font-medium mb-1">ราคาต่อหน่วย (บาท)</label>
-                            <input type="number" step="0.01" id="rec-price" required class="w-full p-2 border rounded-md">
+                            <input type="number" step="0.01" min="0" max="100000000" id="rec-price" required class="w-full p-2 border rounded-md">
                         </div>
                     </div>
                     <div>
                         <label class="block text-sm font-medium mb-1">รับจาก / ร้านค้า</label>
-                        <input type="text" id="rec-from" class="w-full p-2 border rounded-md">
+                        <input type="text" id="rec-from" maxlength="200" class="w-full p-2 border rounded-md">
                     </div>
-                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 rounded-md transition">
+                    <button type="submit" id="btn-submit-receive" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 rounded-md transition">
                         บันทึกการรับเข้า
                     </button>
                 </form>
@@ -184,7 +218,7 @@
                 <form onsubmit="handleIssue(event)" class="space-y-4">
                     <div>
                         <label class="block text-sm font-medium mb-1">🔍 ค้นหาชื่อวัสดุที่จะเบิก</label>
-                        <input type="text" id="issue-search" placeholder="พิมพ์ชื่อเพื่อกรองรายการวัสดุ..." class="w-full p-2 border rounded-md mb-2" oninput="filterIssueMaterials()">
+                        <input type="text" id="issue-search" maxlength="100" placeholder="พิมพ์ชื่อเพื่อกรองรายการวัสดุ..." class="w-full p-2 border rounded-md mb-2" oninput="filterIssueMaterials()">
                     </div>
                     <div>
                         <label class="block text-sm font-medium mb-1">เลือกวัสดุ</label>
@@ -199,14 +233,14 @@
                         </div>
                         <div>
                             <label class="block text-sm font-medium mb-1">จำนวนที่เบิก</label>
-                            <input type="number" step="0.01" id="issue-qty" required class="w-full p-2 border rounded-md">
+                            <input type="number" step="0.01" min="0.01" max="10000000" id="issue-qty" required class="w-full p-2 border rounded-md">
                         </div>
                     </div>
                     <div>
                         <label class="block text-sm font-medium mb-1">ผู้เบิก / หน่วยงาน</label>
-                        <input type="text" id="issue-to" class="w-full p-2 border rounded-md">
+                        <input type="text" id="issue-to" maxlength="200" class="w-full p-2 border rounded-md">
                     </div>
-                    <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-medium py-2 rounded-md transition">
+                    <button type="submit" id="btn-submit-issue" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-medium py-2 rounded-md transition">
                         ยืนยันการเบิกจ่าย
                     </button>
                 </form>
@@ -248,49 +282,113 @@
         let allMaterialsCache = [];
         let allStockInsCache = [];
         let allStockOutsCache = [];
+        let loginAttempts = 0;
+        let loginLockoutUntil = 0;
 
-        // ล็อกอินโดยตรงกับตาราง public.user_profiles
+        // 🛡️ ล็อกอินพร้อมระบบป้องกัน Brute-force เบื้องต้น
         async function handleLogin(e) {
             e.preventDefault();
-            const email = document.getElementById('email').value.trim();
-            const password = document.getElementById('password').value.trim();
+            const now = Date.now();
             const errorDiv = document.getElementById('login-error');
 
-            const { data: user, error } = await _supabase
-                .from('user_profiles')
-                .select('*')
-                .eq('email', email)
-                .eq('password', password)
-                .maybeSingle();
-
-            if (error || !user) {
-                errorDiv.innerText = "เข้าสู่ระบบไม่สำเร็จ: อีเมลหรือรหัสผ่านไม่ถูกต้อง";
+            if (now < loginLockoutUntil) {
+                const waitSec = Math.ceil((loginLockoutUntil - now) / 1000);
+                errorDiv.textContent = `กรอกรหัสผ่านผิดเกินกำหนด กรุณารอ ${waitSec} วินาที`;
                 errorDiv.classList.remove('hidden');
-            } else {
-                errorDiv.classList.add('hidden');
-                
-                window.currentUserProfile = user;
-                
-                document.getElementById('login-page').classList.add('hidden');
-                document.getElementById('app-page').classList.remove('hidden');
-                
-                document.getElementById('user-name').innerText = user.full_name;
-                document.getElementById('user-role').innerText = user.position || 'เจ้าหน้าที่';
+                return;
+            }
 
-                loadSummaryData();
-                loadMaterialsOption();
-                loadReceiveHistory();
-                loadIssueHistory();
+            const email = sanitizeInput(document.getElementById('email').value, 150);
+            const password = document.getElementById('password').value;
+            const btnLogin = document.getElementById('btn-login');
+
+            setButtonLoading(btnLogin, true, 'เข้าสู่ระบบ');
+
+            try {
+                // รองรับทั้ง Supabase Auth (แนะนำ) และ fallback ตาราง user_profiles เดิม
+                let authenticatedUser = null;
+
+                const { data: authData, error: authError } = await _supabase.auth.signInWithPassword({
+                    email: email,
+                    password: password
+                });
+
+                if (!authError && authData?.user) {
+                    const { data: profile } = await _supabase
+                        .from('user_profiles')
+                        .select('id, email, full_name, position')
+                        .eq('email', email)
+                        .maybeSingle();
+
+                    authenticatedUser = profile || {
+                        email: authData.user.email,
+                        full_name: authData.user.email,
+                        position: 'เจ้าหน้าที่'
+                    };
+                } else {
+                    // Fallback: ตรวจสอบจาก user_profiles (ไม่ดึงคอลัมน์ password กลับมาเก็บในหน่วยความจำ)
+                    const { data: user, error } = await _supabase
+                        .from('user_profiles')
+                        .select('id, email, full_name, position')
+                        .eq('email', email)
+                        .eq('password', password)
+                        .maybeSingle();
+
+                    if (!error && user) {
+                        authenticatedUser = user;
+                    }
+                }
+
+                if (!authenticatedUser) {
+                    loginAttempts++;
+                    if (loginAttempts >= 5) {
+                        loginLockoutUntil = Date.now() + 30000; // ล็อก 30 วินาที
+                        loginAttempts = 0;
+                        errorDiv.textContent = "เข้าสู่ระบบไม่สำเร็จหลายครั้ง กรุณารอ 30 วินาทีแล้วลองใหม่";
+                    } else {
+                        errorDiv.textContent = "เข้าสู่ระบบไม่สำเร็จ: อีเมลหรือรหัสผ่านไม่ถูกต้อง";
+                    }
+                    errorDiv.classList.remove('hidden');
+                } else {
+                    loginAttempts = 0;
+                    errorDiv.classList.add('hidden');
+                    document.getElementById('password').value = ''; // ล้างรหัสผ่านออกจาก DOM ทันที
+
+                    window.currentUserProfile = authenticatedUser;
+
+                    document.getElementById('login-page').classList.add('hidden');
+                    document.getElementById('app-page').classList.remove('hidden');
+
+                    // ใช้ textContent เสมอเพื่อป้องกัน XSS
+                    document.getElementById('user-name').textContent = authenticatedUser.full_name || '';
+                    document.getElementById('user-role').textContent = authenticatedUser.position || 'เจ้าหน้าที่';
+
+                    loadSummaryData();
+                    loadMaterialsOption();
+                    loadReceiveHistory();
+                    loadIssueHistory();
+                }
+            } catch (err) {
+                errorDiv.textContent = "เกิดข้อผิดพลาดในการเชื่อมต่อระบบ";
+                errorDiv.classList.remove('hidden');
+            } finally {
+                setButtonLoading(btnLogin, false, 'เข้าสู่ระบบ');
             }
         }
 
         async function handleLogout() {
+            await _supabase.auth.signOut().catch(() => {});
             window.currentUserProfile = null;
+            allMaterialsCache = [];
+            allStockInsCache = [];
+            allStockOutsCache = [];
             document.getElementById('login-page').classList.remove('hidden');
             document.getElementById('app-page').classList.add('hidden');
         }
 
         function switchTab(tabName) {
+            if (!window.currentUserProfile) return;
+
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.tab-btn').forEach(el => {
                 el.classList.remove('border-sky-600', 'text-sky-600');
@@ -300,26 +398,28 @@
             document.getElementById(`tab-${tabName}`).classList.remove('hidden');
             document.getElementById(`tab-btn-${tabName}`).classList.add('border-sky-600', 'text-sky-600');
             
-            if(tabName === 'summary') loadSummaryData();
-            if(tabName === 'receive') {
+            if (tabName === 'summary') loadSummaryData();
+            if (tabName === 'receive') {
                 document.getElementById('rec-date').valueAsDate = new Date();
                 loadMaterialsDatalist();
             }
-            if(tabName === 'rec-history') loadReceiveHistory();
-            if(tabName === 'issue') {
+            if (tabName === 'rec-history') loadReceiveHistory();
+            if (tabName === 'issue') {
                 loadMaterialsOption();
                 document.getElementById('issue-date').valueAsDate = new Date();
             }
-            if(tabName === 'issue-history') loadIssueHistory();
+            if (tabName === 'issue-history') loadIssueHistory();
         }
 
-        // --- ฟังก์ชันสำรองข้อมูลระบบ (Backup Database to JSON) ---
+        // --- ฟังก์ชันสำรองข้อมูลระบบ (ไม่ดึงคอลัมน์รหัสผ่านมาสำรอง) ---
         async function backupDatabase() {
+            if (!window.currentUserProfile) return;
             try {
                 const { data: materials } = await _supabase.from('materials').select('*');
                 const { data: stockIns } = await _supabase.from('stock_in').select('*');
                 const { data: stockOuts } = await _supabase.from('stock_out').select('*');
-                const { data: profiles } = await _supabase.from('user_profiles').select('*');
+                // ตัดคอลัมน์ password ออกเพื่อความปลอดภัยของข้อมูล
+                const { data: profiles } = await _supabase.from('user_profiles').select('id, email, full_name, position');
 
                 const backupData = {
                     export_date: new Date().toISOString(),
@@ -329,15 +429,17 @@
                     user_profiles: profiles || []
                 };
 
-                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+                const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
                 const downloadAnchor = document.createElement('a');
-                downloadAnchor.setAttribute("href", dataStr);
+                downloadAnchor.href = url;
                 
                 const dateStr = new Date().toISOString().slice(0, 10);
-                downloadAnchor.setAttribute("download", `inventory_backup_${dateStr}.json`);
+                downloadAnchor.download = `inventory_backup_${dateStr}.json`;
                 document.body.appendChild(downloadAnchor);
                 downloadAnchor.click();
                 downloadAnchor.remove();
+                URL.revokeObjectURL(url);
 
                 alert('สำรองข้อมูลระบบสำเร็จเรียบร้อยแล้ว!');
             } catch (err) {
@@ -345,9 +447,9 @@
             }
         }
 
-        // --- 1. สรุปคงเหลือ ---
+        // --- 1. สรุปคงเหลือ (ใช้ DOM API / Escape HTML ป้องกัน XSS 100%) ---
         async function loadSummaryData() {
-            const { data: materials } = await _supabase.from('materials').select('*');
+            const { data: materials } = await _supabase.from('materials').select('*').order('material_id', { ascending: true });
             const { data: stockIns } = await _supabase.from('stock_in').select('lot_id, material_id, qty_remaining, unit_price');
             
             allMaterialsCache = materials || [];
@@ -356,23 +458,24 @@
             const tbody = document.getElementById('summary-table-body');
             tbody.innerHTML = '';
             
-            if(!materials) return;
+            if (!materials) return;
 
             materials.forEach(item => {
                 const itemLots = stockIns ? stockIns.filter(s => s.material_id === item.material_id) : [];
-                const totalQty = itemLots.reduce((sum, s) => sum + (s.qty_remaining || 0), 0);
-                const totalValue = itemLots.reduce((sum, s) => sum + ((s.qty_remaining || 0) * (s.unit_price || 0)), 0);
+                const totalQty = itemLots.reduce((sum, s) => sum + (Number(s.qty_remaining) || 0), 0);
+                const totalValue = itemLots.reduce((sum, s) => sum + ((Number(s.qty_remaining) || 0) * (Number(s.unit_price) || 0)), 0);
 
-                tbody.innerHTML += `
-                    <tr class="hover:bg-slate-50">
-                        <td class="p-3 text-center"><input type="radio" name="selected_mat" value="${item.material_id}" class="accent-sky-600"></td>
-                        <td class="p-3 text-slate-500">${item.material_id}</td>
-                        <td class="p-3 font-medium text-slate-800">${item.material_name}</td>
-                        <td class="p-3 text-right font-semibold text-sky-700">${totalQty.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                        <td class="p-3 text-center">${item.unit}</td>
-                        <td class="p-3 text-right font-semibold text-emerald-700">${totalValue.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                    </tr>
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50';
+                tr.innerHTML = `
+                    <td class="p-3 text-center"><input type="radio" name="selected_mat" value="${escapeHTML(item.material_id)}" class="accent-sky-600"></td>
+                    <td class="p-3 text-slate-500">${escapeHTML(item.material_id)}</td>
+                    <td class="p-3 font-medium text-slate-800">${escapeHTML(item.material_name)}</td>
+                    <td class="p-3 text-right font-semibold text-sky-700">${totalQty.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                    <td class="p-3 text-center">${escapeHTML(item.unit)}</td>
+                    <td class="p-3 text-right font-semibold text-emerald-700">${totalValue.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
                 `;
+                tbody.appendChild(tr);
             });
         }
 
@@ -381,10 +484,10 @@
 
             allMaterialsCache.forEach(item => {
                 const itemLots = allStockInsCache.filter(s => s.material_id === item.material_id);
-                const totalQty = itemLots.reduce((sum, s) => sum + (s.qty_remaining || 0), 0);
+                const totalQty = itemLots.reduce((sum, s) => sum + (Number(s.qty_remaining) || 0), 0);
                 
                 if (totalQty > 0) {
-                    const totalValue = itemLots.reduce((sum, s) => sum + ((s.qty_remaining || 0) * (s.unit_price || 0)), 0);
+                    const totalValue = itemLots.reduce((sum, s) => sum + ((Number(s.qty_remaining) || 0) * (Number(s.unit_price) || 0)), 0);
                     dataToExport.push({
                         "รหัสวัสดุ": item.material_id,
                         "ชื่อวัสดุ": item.material_name,
@@ -395,7 +498,7 @@
                 }
             });
 
-            if(dataToExport.length === 0) {
+            if (dataToExport.length === 0) {
                 alert('ไม่มีรายการวัสดุที่มีสินค้าคงเหลือสำหรับส่งออกครับ');
                 return;
             }
@@ -408,17 +511,19 @@
 
         async function deleteSelectedMaterial() {
             const selected = document.querySelector('input[name="selected_mat"]:checked');
-            if(!selected) {
+            if (!selected) {
                 alert('กรุณาคลิกเลือกรายการวัสดุที่ต้องการลบก่อนครับ');
                 return;
             }
-            const matId = parseInt(selected.value);
+            const matId = parseInt(selected.value, 10);
+            if (isNaN(matId)) return;
+
             const mat = allMaterialsCache.find(m => m.material_id === matId);
 
-            if(!confirm(`คุณต้องการลบชื่อวัสดุ '${mat?.material_name}' พร้อมประวัติทั้งหมดใช่หรือไม่?`)) return;
+            if (!confirm(`คุณต้องการลบชื่อวัสดุ '${mat?.material_name}' พร้อมประวัติทั้งหมดใช่หรือไม่?`)) return;
 
             const { data: lots } = await _supabase.from('stock_in').select('lot_id').eq('material_id', matId);
-            if(lots && lots.length > 0) {
+            if (lots && lots.length > 0) {
                 const lotIds = lots.map(l => l.lot_id);
                 await _supabase.from('stock_out').delete().in('lot_id', lotIds);
                 await _supabase.from('stock_in').delete().eq('material_id', matId);
@@ -440,15 +545,18 @@
             const datalist = document.getElementById('materials-datalist');
             datalist.innerHTML = '';
             list.forEach(m => {
-                datalist.innerHTML += `<option value="${m.material_name}" data-unit="${m.unit}"></option>`;
+                const option = document.createElement('option');
+                option.value = m.material_name;
+                option.dataset.unit = m.unit;
+                datalist.appendChild(option);
             });
         }
 
         function filterReceiveMaterials() {
             const keyword = document.getElementById('rec-search').value.toLowerCase();
-            const filtered = allMaterialsCache.filter(m => m.material_name.toLowerCase().includes(keyword));
+            const filtered = allMaterialsCache.filter(m => (m.material_name || '').toLowerCase().includes(keyword));
             renderDatalist(filtered);
-            if(filtered.length === 1) {
+            if (filtered.length === 1) {
                 document.getElementById('rec-name').value = filtered[0].material_name;
                 document.getElementById('rec-unit').value = filtered[0].unit;
             }
@@ -457,50 +565,71 @@
         function onReceiveMaterialSelected() {
             const name = document.getElementById('rec-name').value;
             const found = allMaterialsCache.find(m => m.material_name === name);
-            if(found) {
+            if (found) {
                 document.getElementById('rec-unit').value = found.unit;
             }
         }
 
         async function handleReceive(e) {
             e.preventDefault();
-            const name = document.getElementById('rec-name').value.trim();
-            const unit = document.getElementById('rec-unit').value.trim();
+            const btnSubmit = document.getElementById('btn-submit-receive');
+            const name = sanitizeInput(document.getElementById('rec-name').value, 200);
+            const unit = sanitizeInput(document.getElementById('rec-unit').value, 50);
             const date = document.getElementById('rec-date').value;
             const qty = parseFloat(document.getElementById('rec-qty').value);
             const price = parseFloat(document.getElementById('rec-price').value);
-            const from = document.getElementById('rec-from').value.trim();
+            const from = sanitizeInput(document.getElementById('rec-from').value, 200);
 
-            let { data: mat } = await _supabase.from('materials').select('material_id').eq('material_name', name).maybeSingle();
-            let material_id = mat ? mat.material_id : null;
-
-            if (!material_id) {
-                const { data: newMat, error: errMat } = await _supabase.from('materials').insert([{ material_name: name, unit: unit }]).select().single();
-                if(errMat) {
-                    alert('เกิดข้อผิดพลาดในการบันทึกวัสดุ: ' + errMat.message);
-                    return;
-                }
-                material_id = newMat.material_id;
+            // Validation ค่าตัวเลขและข้อความ
+            if (!name || !unit || !date) {
+                alert('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน');
+                return;
             }
-
-            const { error: errStock } = await _supabase.from('stock_in').insert([{
-                material_id: material_id,
-                received_date: date,
-                qty_received: qty,
-                qty_remaining: qty,
-                unit_price: price,
-                received_from: from
-            }]);
-
-            if(errStock) {
-                alert('เกิดข้อผิดพลาดในการบันทึกรับเข้า: ' + errStock.message);
+            if (isNaN(qty) || qty <= 0) {
+                alert('จำนวนรับเข้าต้องมากกว่า 0');
+                return;
+            }
+            if (isNaN(price) || price < 0) {
+                alert('ราคาต่อหน่วยต้องไม่ติดลบ');
                 return;
             }
 
-            alert('บันทึกการรับวัสดุเข้าคลังเรียบร้อยแล้ว');
-            e.target.reset();
-            document.getElementById('rec-date').valueAsDate = new Date();
-            loadMaterialsDatalist();
+            setButtonLoading(btnSubmit, true, 'บันทึกการรับเข้า');
+
+            try {
+                let { data: mat } = await _supabase.from('materials').select('material_id').eq('material_name', name).maybeSingle();
+                let material_id = mat ? mat.material_id : null;
+
+                if (!material_id) {
+                    const { data: newMat, error: errMat } = await _supabase.from('materials').insert([{ material_name: name, unit: unit }]).select().single();
+                    if (errMat) {
+                        alert('เกิดข้อผิดพลาดในการบันทึกวัสดุ: ' + errMat.message);
+                        return;
+                    }
+                    material_id = newMat.material_id;
+                }
+
+                const { error: errStock } = await _supabase.from('stock_in').insert([{
+                    material_id: material_id,
+                    received_date: date,
+                    qty_received: qty,
+                    qty_remaining: qty,
+                    unit_price: price,
+                    received_from: from
+                }]);
+
+                if (errStock) {
+                    alert('เกิดข้อผิดพลาดในการบันทึกรับเข้า: ' + errStock.message);
+                    return;
+                }
+
+                alert('บันทึกการรับวัสดุเข้าคลังเรียบร้อยแล้ว');
+                e.target.reset();
+                document.getElementById('rec-date').valueAsDate = new Date();
+                loadMaterialsDatalist();
+            } finally {
+                setButtonLoading(btnSubmit, false, 'บันทึกการรับเข้า');
+            }
         }
 
         // --- 3. ประวัติรับเข้า ---
@@ -509,20 +638,22 @@
             allStockInsCache = data || [];
             const tbody = document.getElementById('rec-history-tbody');
             tbody.innerHTML = '';
-            if(!data) return;
+            if (!data) return;
+
             data.forEach(s => {
-                tbody.innerHTML += `
-                    <tr class="hover:bg-slate-50">
-                        <td class="p-3 text-center"><input type="radio" name="selected_lot" value="${s.lot_id}" class="accent-sky-600"></td>
-                        <td class="p-3 font-medium">#${s.lot_id}</td>
-                        <td class="p-3">${s.received_date}</td>
-                        <td class="p-3">${s.materials?.material_name || '-'}</td>
-                        <td class="p-3 text-right">${s.qty_received.toLocaleString('th-TH', {minimumFractionDigits: 2})} ${s.materials?.unit || ''}</td>
-                        <td class="p-3 text-right text-emerald-600 font-semibold">${s.qty_remaining.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                        <td class="p-3 text-right">${s.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                        <td class="p-3">${s.received_from || '-'}</td>
-                    </tr>
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50';
+                tr.innerHTML = `
+                    <td class="p-3 text-center"><input type="radio" name="selected_lot" value="${escapeHTML(s.lot_id)}" class="accent-sky-600"></td>
+                    <td class="p-3 font-medium">#${escapeHTML(s.lot_id)}</td>
+                    <td class="p-3">${escapeHTML(s.received_date)}</td>
+                    <td class="p-3">${escapeHTML(s.materials?.material_name || '-')}</td>
+                    <td class="p-3 text-right">${Number(s.qty_received).toLocaleString('th-TH', {minimumFractionDigits: 2})} ${escapeHTML(s.materials?.unit || '')}</td>
+                    <td class="p-3 text-right text-emerald-600 font-semibold">${Number(s.qty_remaining).toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                    <td class="p-3 text-right">${Number(s.unit_price).toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                    <td class="p-3">${escapeHTML(s.received_from || '-')}</td>
                 `;
+                tbody.appendChild(tr);
             });
         }
 
@@ -545,26 +676,28 @@
 
         async function deleteSelectedReceiveLot() {
             const selected = document.querySelector('input[name="selected_lot"]:checked');
-            if(!selected) {
+            if (!selected) {
                 alert('กรุณาเลือกรายการล็อตรับเข้าที่ต้องการลบก่อนครับ');
                 return;
             }
-            const lotId = parseInt(selected.value);
+            const lotId = parseInt(selected.value, 10);
+            if (isNaN(lotId)) return;
+
             const lot = allStockInsCache.find(s => s.lot_id === lotId);
 
-            if(lot.qty_remaining < lot.qty_received) {
+            if (lot.qty_remaining < lot.qty_received) {
                 alert(`ไม่สามารถลบล็อต #${lotId} ได้ เนื่องจากมีการเบิกจ่ายไปบางส่วนแล้ว`);
                 return;
             }
 
-            if(!confirm(`ยืนยันการลบล็อตรับเข้า #${lotId} (${lot.materials?.material_name}) ใช่หรือไม่?`)) return;
+            if (!confirm(`ยืนยันการลบล็อตรับเข้า #${lotId} (${lot.materials?.material_name}) ใช่หรือไม่?`)) return;
 
             await _supabase.from('stock_in').delete().eq('lot_id', lotId);
             alert('ลบล็อตรับเข้าเรียบร้อยแล้ว');
             loadReceiveHistory();
         }
 
-        // --- 4. บันทึกเบิกจ่าย ---
+        // --- 4. บันทึกเบิกจ่าย (ใช้ RPC FIFO + ป้องกันการกดซ้ำ) ---
         async function loadMaterialsOption() {
             const { data: materials } = await _supabase.from('materials').select('*').order('material_name');
             const { data: stockIns } = await _supabase.from('stock_in').select('material_id, qty_remaining');
@@ -579,63 +712,106 @@
             select.innerHTML = '<option value="">-- เลือกรายการวัสดุ --</option>';
             list.forEach(m => {
                 const itemLots = allStockInsCache.filter(s => s.material_id === m.material_id);
-                const totalRem = itemLots.reduce((sum, s) => sum + (s.qty_remaining || 0), 0);
-                select.innerHTML += `<option value="${m.material_id}">${m.material_name} (คงเหลือ: ${totalRem.toLocaleString('th-TH')} ${m.unit})</option>`;
+                const totalRem = itemLots.reduce((sum, s) => sum + (Number(s.qty_remaining) || 0), 0);
+                const option = document.createElement('option');
+                option.value = m.material_id;
+                option.textContent = `${m.material_name} (คงเหลือ: ${totalRem.toLocaleString('th-TH')} ${m.unit})`;
+                select.appendChild(option);
             });
         }
 
         function filterIssueMaterials() {
             const keyword = document.getElementById('issue-search').value.toLowerCase();
-            const filtered = allMaterialsCache.filter(m => m.material_name.toLowerCase().includes(keyword));
+            const filtered = allMaterialsCache.filter(m => (m.material_name || '').toLowerCase().includes(keyword));
             renderIssueSelect(filtered);
         }
 
         async function handleIssue(e) {
             e.preventDefault();
-            const material_id = parseInt(document.getElementById('issue-mat-select').value);
+            const btnSubmit = document.getElementById('btn-submit-issue');
+            const material_id = parseInt(document.getElementById('issue-mat-select').value, 10);
             const date = document.getElementById('issue-date').value;
-            let qtyNeeded = parseFloat(document.getElementById('issue-qty').value);
-            const issued_to = document.getElementById('issue-to').value.trim();
+            const qtyNeeded = parseFloat(document.getElementById('issue-qty').value);
+            const issued_to = sanitizeInput(document.getElementById('issue-to').value, 200);
 
-            const { data: lots } = await _supabase.from('stock_in')
-                .select('*')
-                .eq('material_id', material_id)
-                .gt('qty_remaining', 0)
-                .order('lot_id', { ascending: true });
-
-            if(!lots || lots.length === 0) {
-                alert('ไม่พบสต็อกคงเหลือสำหรับวัสดุนี้');
+            if (isNaN(material_id) || !date) {
+                alert('กรุณาเลือกวัสดุและวันที่เบิกให้ถูกต้อง');
+                return;
+            }
+            if (isNaN(qtyNeeded) || qtyNeeded <= 0) {
+                alert('จำนวนที่เบิกต้องมากกว่า 0');
                 return;
             }
 
-            const totalAvailable = lots.reduce((sum, l) => sum + l.qty_remaining, 0);
-            if(qtyNeeded > totalAvailable) {
-                alert(`สินค้าไม่พอเบิก! ต้องการเบิก ${qtyNeeded} แต่มีคงเหลือรวมเพียง ${totalAvailable}`);
-                return;
+            setButtonLoading(btnSubmit, true, 'ยืนยันการเบิกจ่าย');
+
+            try {
+                // ลองเรียกใช้ PostgreSQL RPC (issue_material_fifo) ก่อนเพื่อความเป็น Transaction (Atomicity)
+                const { error: rpcError } = await _supabase.rpc('issue_material_fifo', {
+                    p_material_id: material_id,
+                    p_issue_date: date,
+                    p_qty_needed: qtyNeeded,
+                    p_issued_to: issued_to
+                });
+
+                if (!rpcError) {
+                    alert('เบิกจ่ายวัสดุสำเร็จเรียบร้อย!');
+                    e.target.reset();
+                    document.getElementById('issue-date').valueAsDate = new Date();
+                    loadMaterialsOption();
+                    loadIssueHistory();
+                    return;
+                }
+
+                // หากยังไม่ได้สร้าง RPC function บน Supabase ให้ fallback ไปใช้ Logic เดิมแบบปลอดภัย
+                if (rpcError.code === 'PGRST202' || rpcError.message.includes('Could not find the function')) {
+                    let remainingToDeduct = qtyNeeded;
+                    const { data: lots } = await _supabase.from('stock_in')
+                        .select('*')
+                        .eq('material_id', material_id)
+                        .gt('qty_remaining', 0)
+                        .order('lot_id', { ascending: true });
+
+                    if (!lots || lots.length === 0) {
+                        alert('ไม่พบสต็อกคงเหลือสำหรับวัสดุนี้');
+                        return;
+                    }
+
+                    const totalAvailable = lots.reduce((sum, l) => sum + Number(l.qty_remaining), 0);
+                    if (remainingToDeduct > totalAvailable) {
+                        alert(`สินค้าไม่พอเบิก! ต้องการเบิก ${remainingToDeduct} แต่มีคงเหลือรวมเพียง ${totalAvailable}`);
+                        return;
+                    }
+
+                    for (let lot of lots) {
+                        if (remainingToDeduct <= 0) break;
+                        let deduct = Number(lot.qty_remaining) >= remainingToDeduct ? remainingToDeduct : Number(lot.qty_remaining);
+                        remainingToDeduct -= deduct;
+
+                        await _supabase.from('stock_in')
+                            .update({ qty_remaining: Number(lot.qty_remaining) - deduct })
+                            .eq('lot_id', lot.lot_id);
+
+                        await _supabase.from('stock_out').insert([{
+                            lot_id: lot.lot_id,
+                            issue_date: date,
+                            qty_issued: deduct,
+                            unit_price: lot.unit_price,
+                            issued_to: issued_to
+                        }]);
+                    }
+
+                    alert('เบิกจ่ายวัสดุสำเร็จเรียบร้อย!');
+                    e.target.reset();
+                    document.getElementById('issue-date').valueAsDate = new Date();
+                    loadMaterialsOption();
+                    loadIssueHistory();
+                } else {
+                    alert('เกิดข้อผิดพลาด: ' + rpcError.message);
+                }
+            } finally {
+                setButtonLoading(btnSubmit, false, 'ยืนยันการเบิกจ่าย');
             }
-
-            for (let lot of lots) {
-                if (qtyNeeded <= 0) break;
-                let deduct = lot.qty_remaining >= qtyNeeded ? qtyNeeded : lot.qty_remaining;
-                qtyNeeded -= deduct;
-
-                await _supabase.from('stock_in')
-                    .update({ qty_remaining: lot.qty_remaining - deduct })
-                    .eq('lot_id', lot.lot_id);
-
-                await _supabase.from('stock_out').insert([{
-                    lot_id: lot.lot_id,
-                    issue_date: date,
-                    qty_issued: deduct,
-                    unit_price: lot.unit_price,
-                    issued_to: issued_to
-                }]);
-            }
-
-            alert('เบิกจ่ายวัสดุสำเร็จเรียบร้อย!');
-            e.target.reset();
-            document.getElementById('issue-date').valueAsDate = new Date();
-            loadMaterialsOption();
         }
 
         // --- 5. ประวัติเบิกจ่าย ---
@@ -644,22 +820,24 @@
             allStockOutsCache = data || [];
             const tbody = document.getElementById('issue-history-tbody');
             tbody.innerHTML = '';
-            if(!data) return;
+            if (!data) return;
+
             data.forEach(o => {
                 const matName = o.stock_in?.materials?.material_name || '-';
                 const unit = o.stock_in?.materials?.unit || '';
-                tbody.innerHTML += `
-                    <tr class="hover:bg-slate-50">
-                        <td class="p-3 text-center"><input type="radio" name="selected_issue" value="${o.issue_id}" class="accent-sky-600"></td>
-                        <td class="p-3 font-medium">#${o.issue_id}</td>
-                        <td class="p-3">${o.issue_date}</td>
-                        <td class="p-3">${matName}</td>
-                        <td class="p-3 text-right text-rose-600 font-semibold">${o.qty_issued.toLocaleString('th-TH', {minimumFractionDigits: 2})} ${unit}</td>
-                        <td class="p-3 text-right">${o.unit_price.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
-                        <td class="p-3">${o.issued_to || '-'}</td>
-                        <td class="p-3 text-center">ล็อต #${o.lot_id}</td>
-                    </tr>
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50';
+                tr.innerHTML = `
+                    <td class="p-3 text-center"><input type="radio" name="selected_issue" value="${escapeHTML(o.issue_id)}" class="accent-sky-600"></td>
+                    <td class="p-3 font-medium">#${escapeHTML(o.issue_id)}</td>
+                    <td class="p-3">${escapeHTML(o.issue_date)}</td>
+                    <td class="p-3">${escapeHTML(matName)}</td>
+                    <td class="p-3 text-right text-rose-600 font-semibold">${Number(o.qty_issued).toLocaleString('th-TH', {minimumFractionDigits: 2})} ${escapeHTML(unit)}</td>
+                    <td class="p-3 text-right">${Number(o.unit_price).toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                    <td class="p-3">${escapeHTML(o.issued_to || '-')}</td>
+                    <td class="p-3 text-center">ล็อต #${escapeHTML(o.lot_id)}</td>
                 `;
+                tbody.appendChild(tr);
             });
         }
 
@@ -682,18 +860,20 @@
 
         async function deleteSelectedIssue() {
             const selected = document.querySelector('input[name="selected_issue"]:checked');
-            if(!selected) {
+            if (!selected) {
                 alert('กรุณาเลือกรายการเบิกจ่ายที่ต้องการยกเลิกก่อนครับ');
                 return;
             }
-            const issueId = parseInt(selected.value);
+            const issueId = parseInt(selected.value, 10);
+            if (isNaN(issueId)) return;
+
             const issueItem = allStockOutsCache.find(o => o.issue_id === issueId);
 
-            if(!confirm(`ยืนยันการยกเลิกการเบิกรายการ #${issueId} ใช่หรือไม่? (ระบบจะคืนสต็อกกลับเข้าล็อต #${issueItem.lot_id} อัตโนมัติ)`)) return;
+            if (!confirm(`ยืนยันการยกเลิกการเบิกรายการ #${issueId} ใช่หรือไม่? (ระบบจะคืนสต็อกกลับเข้าล็อต #${issueItem.lot_id} อัตโนมัติ)`)) return;
 
             const { data: lotData } = await _supabase.from('stock_in').select('qty_remaining').eq('lot_id', issueItem.lot_id).single();
-            if(lotData) {
-                const newRemaining = lotData.qty_remaining + issueItem.qty_issued;
+            if (lotData) {
+                const newRemaining = Number(lotData.qty_remaining) + Number(issueItem.qty_issued);
                 await _supabase.from('stock_in').update({ qty_remaining: newRemaining }).eq('lot_id', issueItem.lot_id);
             }
 
