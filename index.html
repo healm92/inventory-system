@@ -26,14 +26,6 @@
         const SUPABASE_ANON_KEY = 'sb_publishable__0KAOXCyM13SpC6S9DpfOw_ZKHUF4jd';
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // 🛡️ [ตั้งค่าความปลอดภัย] รายชื่ออีเมลหรือ UID ที่ได้รับอนุญาตให้ใช้งานระบบคลังวัสดุชุดนี้เท่านั้น
-        // (สามารถเพิ่มอีเมลของเจ้าหน้าที่ที่มีสิทธิ์ใช้งานเว็บนี้ได้ตามต้องการ)
-        const ALLOWED_USERS = [
-            "admin@muangkao.go.th",
-            "toey@muangkao.go.th"
-            // ตัวอย่าง: เพิ่มอีเมลคนอื่นๆ ที่อนุญาตตรงนี้
-        ];
-
         // 🛡️ ฟังก์ชันป้องกัน XSS (Escape HTML Entities)
         function escapeHTML(str) {
             if (str === null || str === undefined) return '';
@@ -293,7 +285,7 @@
         let loginAttempts = 0;
         let loginLockoutUntil = 0;
 
-        // 🛡️ ล็อกอินพร้อมระบบตรวจสอบสิทธิ์ UID / อีเมลที่ได้รับอนุญาตเฉพาะเว็บนี้
+        // 🛡️ ล็อกอินพร้อมตรวจสอบสิทธิ์ role จาก user_profiles
         async function handleLogin(e) {
             e.preventDefault();
             const now = Date.now();
@@ -325,30 +317,26 @@
                 if (!authError && authData?.user) {
                     userEmail = authData.user.email;
                     
-                    // 🛡️ [วิธีที่ 2] ตรวจสอบว่า UID / อีเมลนี้อยู่ในรายชื่อที่อนุญาตให้ใช้เว็บนี้หรือไม่
-                    if (ALLOWED_USERS.length > 0 && !ALLOWED_USERS.includes(userEmail)) {
-                        errorDiv.textContent = "บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบของเว็บนี้ครับ";
-                        errorDiv.classList.remove('hidden');
-                        await _supabase.auth.signOut(); // บังคับออกจากระบบทันที
-                        return;
-                    }
-
+                    // 🛡️ ดึงข้อมูลโปรไฟล์และตรวจสอบ role
                     const { data: profile } = await _supabase
                         .from('user_profiles')
-                        .select('id, email, full_name, position')
+                        .select('id, email, full_name, position, role')
                         .eq('email', userEmail)
                         .maybeSingle();
 
-                    authenticatedUser = profile || {
-                        email: userEmail,
-                        full_name: userEmail,
-                        position: 'เจ้าหน้าที่'
-                    };
+                    if (!profile || (profile.role !== 'staff' && profile.role !== 'admin')) {
+                        errorDiv.textContent = "บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบ (ไม่ใช่ Staff)";
+                        errorDiv.classList.remove('hidden');
+                        await _supabase.auth.signOut();
+                        return;
+                    }
+
+                    authenticatedUser = profile;
                 } else {
                     // 2. Fallback: ตรวจสอบจากตาราง user_profiles โดยตรง
                     const { data: user, error } = await _supabase
                         .from('user_profiles')
-                        .select('id, email, full_name, position')
+                        .select('id, email, full_name, position, role')
                         .eq('email', email)
                         .eq('password', password)
                         .maybeSingle();
@@ -356,9 +344,9 @@
                     if (!error && user) {
                         userEmail = user.email;
 
-                        // 🛡️ [วิธีที่ 2] ตรวจสอบรายชื่ออนุญาต
-                        if (ALLOWED_USERS.length > 0 && !ALLOWED_USERS.includes(userEmail)) {
-                            errorDiv.textContent = "บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบของเว็บนี้ครับ";
+                        // 🛡️ ตรวจสอบ role
+                        if (user.role !== 'staff' && user.role !== 'admin') {
+                            errorDiv.textContent = "บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบ (ไม่ใช่ Staff)";
                             errorDiv.classList.remove('hidden');
                             return;
                         }
@@ -445,7 +433,7 @@
                 const { data: materials } = await _supabase.from('materials').select('*');
                 const { data: stockIns } = await _supabase.from('stock_in').select('*');
                 const { data: stockOuts } = await _supabase.from('stock_out').select('*');
-                const { data: profiles } = await _supabase.from('user_profiles').select('id, email, full_name, position');
+                const { data: profiles } = await _supabase.from('user_profiles').select('id, email, full_name, position, role');
 
                 const backupData = {
                     export_date: new Date().toISOString(),
