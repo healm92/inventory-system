@@ -323,11 +323,12 @@
             const errorDiv = document.getElementById('login-error');
             const { data: profile, error } = await _supabase
                 .from('user_profiles')
-                .select('id, email, full_name, position, role')
+                .select('email, full_name, position, role') // <-- ลบ id, ออกแล้ว
                 .eq('email', email)
                 .maybeSingle();
 
             if (error || !profile || (profile.role !== 'staff' && profile.role !== 'admin')) {
+                console.error("Profile fetch error:", error); // ช่วยให้ดู error จริงใน console ได้ถ้ามีอีก
                 errorDiv.textContent = "บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบครับ";
                 errorDiv.classList.remove('hidden');
                 await _supabase.auth.signOut();
