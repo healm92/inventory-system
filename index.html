@@ -3,14 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Content Security Policy (CSP) ช่วยป้องกัน XSS และจำกัดแหล่งที่มาของ Script/Connect -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://pdoojfiwedjbrjvjtqth.supabase.co; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://pdoojfiwedjbrjvjtqth.supabase.co wss://pdoojfiwedjbrjvjtqth.supabase.co;">
     <title>ระบบจัดการคลังวัสดุ (Inventory Management)</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Supabase JS Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- SheetJS (xlsx) สำหรับส่งออกไฟล์ Excel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -19,14 +15,11 @@
 </head>
 <body class="bg-slate-50 min-h-screen text-slate-800">
 
-    <!-- Config & Client Setup -->
     <script>
-        // ⚠️ ใส่ Supabase URL และ Anon Key ของคุณตรงนี้
         const SUPABASE_URL = 'https://pdoojfiwedjbrjvjtqth.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable__0KAOXCyM13SpC6S9DpfOw_ZKHUF4jd';
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // 🛡️ ฟังก์ชันป้องกัน XSS (Escape HTML Entities)
         function escapeHTML(str) {
             if (str === null || str === undefined) return '';
             return String(str)
@@ -37,13 +30,11 @@
                 .replace(/'/g, '&#39;');
         }
 
-        // 🛡️ ฟังก์ชันทำความสะอาดและจำกัดความยาว Input
         function sanitizeInput(str, maxLength = 255) {
             if (!str) return '';
             return String(str).trim().slice(0, maxLength);
         }
 
-        // 🛡️ ฟังก์ชันจัดการสถานะปุ่ม Loading ป้องกันการกดซ้ำ (Double Submission)
         function setButtonLoading(btn, isLoading, originalText) {
             if (!btn) return;
             if (isLoading) {
@@ -56,6 +47,15 @@
                 btn.innerText = originalText || btn.dataset.originalText || 'บันทึก';
                 btn.classList.remove('opacity-60', 'cursor-not-allowed');
             }
+        }
+
+        // 🕒 ฟังก์ชันดึงวันที่ปัจจุบันตามเวลาท้องถิ่น (แก้ปัญหาติด UTC ช่วงตี 1 - 7 โมงเช้า)
+        function getTodayLocalString() {
+            const d = new Date();
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
         }
     </script>
 
@@ -83,9 +83,8 @@
         </div>
     </div>
 
-    <!-- หน้า Dashboard แอปพลิเคชันหลัก -->
+    <!-- หน้า Dashboard หลัก -->
     <div id="app-page" class="hidden">
-        <!-- Navbar Header -->
         <nav class="bg-sky-800 text-white shadow-md">
             <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
                 <div class="flex items-center space-x-3">
@@ -103,9 +102,7 @@
             </div>
         </nav>
 
-        <!-- Main Content & Tabs -->
         <div class="max-w-7xl mx-auto p-4 sm:p-6">
-            <!-- Tab Menu Navigation -->
             <div class="flex flex-wrap border-b border-slate-200 mb-6 bg-white rounded-t-lg shadow-sm px-2 pt-2 gap-2">
                 <button onclick="switchTab('summary')" id="tab-btn-summary" class="tab-btn active px-4 py-2.5 font-medium border-b-2 border-sky-600 text-sky-600">📦 สรุปคงเหลือ</button>
                 <button onclick="switchTab('receive')" id="tab-btn-receive" class="tab-btn px-4 py-2.5 font-medium text-slate-500 border-b-2 border-transparent">📥 บันทึกรับเข้า</button>
@@ -119,9 +116,9 @@
                 <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
                     <h2 class="text-lg font-bold text-slate-800">รายการวัสดุคงเหลือในคลัง</h2>
                     <div class="flex flex-wrap gap-2">
-                        <button onclick="backupDatabase()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">💾 สำรองข้อมูลระบบ</button>
+                        <button id="btn-backup" onclick="backupDatabase()" class="hidden bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition items-center gap-1">💾 สำรองข้อมูลระบบ</button>
                         <button onclick="exportSummaryExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📊 ส่งออกเฉพาะวัสดุที่เหลือ (Excel)</button>
-                        <button onclick="deleteSelectedMaterial()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">❌ ลบชื่อวัสดุที่เลือก</button>
+                        <button id="btn-del-mat" onclick="deleteSelectedMaterial()" class="hidden bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition items-center gap-1">❌ ลบชื่อวัสดุที่เลือก</button>
                     </div>
                 </div>
                 <div class="overflow-x-auto">
@@ -277,27 +274,24 @@
         </div>
     </div>
 
-    <!-- Application Script -->
     <script>
-        let allMaterialsCache = [];
-        let allStockInsCache = [];
-        let allStockOutsCache = [];
-        let loginAttempts = 0;
-        let loginLockoutUntil = 0;
+        let summaryMaterialsCache = [];
+        let summaryStockInsCache = [];
+        let receiveHistoryCache = [];
+        let issueMaterialsCache = [];
+        let stockOutsCache = [];
 
-        // 🛡️ ล็อกอินพร้อมตรวจสอบสิทธิ์ role จาก user_profiles
+        // ตรวจสอบ Session ทันทีที่โหลดหน้าเว็บ (รีเฟรชแล้วไม่เด้งออก)
+        document.addEventListener("DOMContentLoaded", async () => {
+            const { data: { session } } = await _supabase.auth.getSession();
+            if (session?.user) {
+                await fetchUserProfileAndStart(session.user.email);
+            }
+        });
+
         async function handleLogin(e) {
             e.preventDefault();
-            const now = Date.now();
             const errorDiv = document.getElementById('login-error');
-
-            if (now < loginLockoutUntil) {
-                const waitSec = Math.ceil((loginLockoutUntil - now) / 1000);
-                errorDiv.textContent = `กรอกรหัสผ่านผิดเกินกำหนด กรุณารอ ${waitSec} วินาที`;
-                errorDiv.classList.remove('hidden');
-                return;
-            }
-
             const email = sanitizeInput(document.getElementById('email').value, 150);
             const password = document.getElementById('password').value;
             const btnLogin = document.getElementById('btn-login');
@@ -305,84 +299,18 @@
             setButtonLoading(btnLogin, true, 'เข้าสู่ระบบ');
 
             try {
-                let authenticatedUser = null;
-                let userEmail = email;
-
-                // 1. ตรวจสอบสิทธิ์ผ่าน Supabase Auth
                 const { data: authData, error: authError } = await _supabase.auth.signInWithPassword({
                     email: email,
                     password: password
                 });
 
-                if (!authError && authData?.user) {
-                    userEmail = authData.user.email;
-                    
-                    // 🛡️ ดึงข้อมูลโปรไฟล์และตรวจสอบ role
-                    const { data: profile } = await _supabase
-                        .from('user_profiles')
-                        .select('id, email, full_name, position, role')
-                        .eq('email', userEmail)
-                        .maybeSingle();
-
-                    if (!profile || (profile.role !== 'staff' && profile.role !== 'admin')) {
-                        errorDiv.textContent = "บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบ (ไม่ใช่ Staff)";
-                        errorDiv.classList.remove('hidden');
-                        await _supabase.auth.signOut();
-                        return;
-                    }
-
-                    authenticatedUser = profile;
-                } else {
-                    // 2. Fallback: ตรวจสอบจากตาราง user_profiles โดยตรง
-                    const { data: user, error } = await _supabase
-                        .from('user_profiles')
-                        .select('id, email, full_name, position, role')
-                        .eq('email', email)
-                        .eq('password', password)
-                        .maybeSingle();
-
-                    if (!error && user) {
-                        userEmail = user.email;
-
-                        // 🛡️ ตรวจสอบ role
-                        if (user.role !== 'staff' && user.role !== 'admin') {
-                            errorDiv.textContent = "บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบ (ไม่ใช่ Staff)";
-                            errorDiv.classList.remove('hidden');
-                            return;
-                        }
-
-                        authenticatedUser = user;
-                    }
-                }
-
-                if (!authenticatedUser) {
-                    loginAttempts++;
-                    if (loginAttempts >= 5) {
-                        loginLockoutUntil = Date.now() + 30000; // ล็อก 30 วินาที
-                        loginAttempts = 0;
-                        errorDiv.textContent = "เข้าสู่ระบบไม่สำเร็จหลายครั้ง กรุณารอ 30 วินาทีแล้วลองใหม่";
-                    } else {
-                        errorDiv.textContent = "เข้าสู่ระบบไม่สำเร็จ: อีเมลหรือรหัสผ่านไม่ถูกต้อง";
-                    }
+                if (authError || !authData?.user) {
+                    errorDiv.textContent = "อีเมลหรือรหัสผ่านไม่ถูกต้อง";
                     errorDiv.classList.remove('hidden');
-                } else {
-                    loginAttempts = 0;
-                    errorDiv.classList.add('hidden');
-                    document.getElementById('password').value = ''; // ล้างรหัสผ่านออกจาก DOM
-
-                    window.currentUserProfile = authenticatedUser;
-
-                    document.getElementById('login-page').classList.add('hidden');
-                    document.getElementById('app-page').classList.remove('hidden');
-
-                    document.getElementById('user-name').textContent = authenticatedUser.full_name || '';
-                    document.getElementById('user-role').textContent = authenticatedUser.position || 'เจ้าหน้าที่';
-
-                    loadSummaryData();
-                    loadMaterialsOption();
-                    loadReceiveHistory();
-                    loadIssueHistory();
+                    return;
                 }
+
+                await fetchUserProfileAndStart(authData.user.email);
             } catch (err) {
                 errorDiv.textContent = "เกิดข้อผิดพลาดในการเชื่อมต่อระบบ";
                 errorDiv.classList.remove('hidden');
@@ -391,14 +319,45 @@
             }
         }
 
+        async function fetchUserProfileAndStart(email) {
+            const errorDiv = document.getElementById('login-error');
+            const { data: profile, error } = await _supabase
+                .from('user_profiles')
+                .select('id, email, full_name, position, role')
+                .eq('email', email)
+                .maybeSingle();
+
+            if (error || !profile || (profile.role !== 'staff' && profile.role !== 'admin')) {
+                errorDiv.textContent = "บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบครับ";
+                errorDiv.classList.remove('hidden');
+                await _supabase.auth.signOut();
+                return;
+            }
+
+            window.currentUserProfile = profile;
+
+            document.getElementById('login-page').classList.add('hidden');
+            document.getElementById('app-page').classList.remove('hidden');
+            document.getElementById('user-name').textContent = profile.full_name || profile.email;
+            document.getElementById('user-role').textContent = `${profile.position || 'เจ้าหน้าที่'} (${profile.role.toUpperCase()})`;
+
+            // เปิดปุ่มเฉพาะ Admin
+            if (profile.role === 'admin') {
+                document.getElementById('btn-backup').classList.remove('hidden');
+                document.getElementById('btn-backup').classList.add('flex');
+                document.getElementById('btn-del-mat').classList.remove('hidden');
+                document.getElementById('btn-del-mat').classList.add('flex');
+            }
+
+            loadSummaryData();
+        }
+
         async function handleLogout() {
             await _supabase.auth.signOut().catch(() => {});
             window.currentUserProfile = null;
-            allMaterialsCache = [];
-            allStockInsCache = [];
-            allStockOutsCache = [];
             document.getElementById('login-page').classList.remove('hidden');
             document.getElementById('app-page').classList.add('hidden');
+            document.getElementById('password').value = '';
         }
 
         function switchTab(tabName) {
@@ -415,41 +374,39 @@
             
             if (tabName === 'summary') loadSummaryData();
             if (tabName === 'receive') {
-                document.getElementById('rec-date').valueAsDate = new Date();
+                document.getElementById('rec-date').value = getTodayLocalString();
                 loadMaterialsDatalist();
             }
             if (tabName === 'rec-history') loadReceiveHistory();
             if (tabName === 'issue') {
                 loadMaterialsOption();
-                document.getElementById('issue-date').valueAsDate = new Date();
+                document.getElementById('issue-date').value = getTodayLocalString();
             }
             if (tabName === 'issue-history') loadIssueHistory();
         }
 
-        // --- ฟังก์ชันสำรองข้อมูลระบบ ---
         async function backupDatabase() {
-            if (!window.currentUserProfile) return;
+            if (!window.currentUserProfile || window.currentUserProfile.role !== 'admin') {
+                alert('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถสำรองข้อมูลได้');
+                return;
+            }
             try {
                 const { data: materials } = await _supabase.from('materials').select('*');
                 const { data: stockIns } = await _supabase.from('stock_in').select('*');
                 const { data: stockOuts } = await _supabase.from('stock_out').select('*');
-                const { data: profiles } = await _supabase.from('user_profiles').select('id, email, full_name, position, role');
 
                 const backupData = {
                     export_date: new Date().toISOString(),
                     materials: materials || [],
                     stock_in: stockIns || [],
-                    stock_out: stockOuts || [],
-                    user_profiles: profiles || []
+                    stock_out: stockOuts || []
                 };
 
                 const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const downloadAnchor = document.createElement('a');
                 downloadAnchor.href = url;
-                
-                const dateStr = new Date().toISOString().slice(0, 10);
-                downloadAnchor.download = `inventory_backup_${dateStr}.json`;
+                downloadAnchor.download = `inventory_backup_${getTodayLocalString()}.json`;
                 document.body.appendChild(downloadAnchor);
                 downloadAnchor.click();
                 downloadAnchor.remove();
@@ -457,7 +414,8 @@
 
                 alert('สำรองข้อมูลระบบสำเร็จเรียบร้อยแล้ว!');
             } catch (err) {
-                alert('เกิดข้อผิดพลาดในการสำรองข้อมูล: ' + err.message);
+                console.error(err);
+                alert('เกิดข้อผิดพลาดในการสำรองข้อมูล');
             }
         }
 
@@ -466,8 +424,8 @@
             const { data: materials } = await _supabase.from('materials').select('*').order('material_id', { ascending: true });
             const { data: stockIns } = await _supabase.from('stock_in').select('lot_id, material_id, qty_remaining, unit_price');
             
-            allMaterialsCache = materials || [];
-            allStockInsCache = stockIns || [];
+            summaryMaterialsCache = materials || [];
+            summaryStockInsCache = stockIns || [];
 
             const tbody = document.getElementById('summary-table-body');
             tbody.innerHTML = '';
@@ -495,9 +453,8 @@
 
         function exportSummaryExcel() {
             const dataToExport = [];
-
-            allMaterialsCache.forEach(item => {
-                const itemLots = allStockInsCache.filter(s => s.material_id === item.material_id);
+            summaryMaterialsCache.forEach(item => {
+                const itemLots = summaryStockInsCache.filter(s => s.material_id === item.material_id);
                 const totalQty = itemLots.reduce((sum, s) => sum + (Number(s.qty_remaining) || 0), 0);
                 
                 if (totalQty > 0) {
@@ -524,15 +481,17 @@
         }
 
         async function deleteSelectedMaterial() {
+            if (window.currentUserProfile.role !== 'admin') {
+                alert('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถลบชื่อวัสดุได้');
+                return;
+            }
             const selected = document.querySelector('input[name="selected_mat"]:checked');
             if (!selected) {
                 alert('กรุณาคลิกเลือกรายการวัสดุที่ต้องการลบก่อนครับ');
                 return;
             }
             const matId = parseInt(selected.value, 10);
-            if (isNaN(matId)) return;
-
-            const mat = allMaterialsCache.find(m => m.material_id === matId);
+            const mat = summaryMaterialsCache.find(m => m.material_id === matId);
 
             if (!confirm(`คุณต้องการลบชื่อวัสดุ '${mat?.material_name}' พร้อมประวัติทั้งหมดใช่หรือไม่?`)) return;
 
@@ -551,8 +510,8 @@
         // --- 2. บันทึกรับเข้า ---
         async function loadMaterialsDatalist() {
             const { data: materials } = await _supabase.from('materials').select('*').order('material_name');
-            allMaterialsCache = materials || [];
-            renderDatalist(allMaterialsCache);
+            summaryMaterialsCache = materials || [];
+            renderDatalist(summaryMaterialsCache);
         }
 
         function renderDatalist(list) {
@@ -568,7 +527,7 @@
 
         function filterReceiveMaterials() {
             const keyword = document.getElementById('rec-search').value.toLowerCase();
-            const filtered = allMaterialsCache.filter(m => (m.material_name || '').toLowerCase().includes(keyword));
+            const filtered = summaryMaterialsCache.filter(m => (m.material_name || '').toLowerCase().includes(keyword));
             renderDatalist(filtered);
             if (filtered.length === 1) {
                 document.getElementById('rec-name').value = filtered[0].material_name;
@@ -578,7 +537,7 @@
 
         function onReceiveMaterialSelected() {
             const name = document.getElementById('rec-name').value;
-            const found = allMaterialsCache.find(m => m.material_name === name);
+            const found = summaryMaterialsCache.find(m => m.material_name === name);
             if (found) {
                 document.getElementById('rec-unit').value = found.unit;
             }
@@ -594,16 +553,8 @@
             const price = parseFloat(document.getElementById('rec-price').value);
             const from = sanitizeInput(document.getElementById('rec-from').value, 200);
 
-            if (!name || !unit || !date) {
-                alert('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน');
-                return;
-            }
-            if (isNaN(qty) || qty <= 0) {
-                alert('จำนวนรับเข้าต้องมากกว่า 0');
-                return;
-            }
-            if (isNaN(price) || price < 0) {
-                alert('ราคาต่อหน่วยต้องไม่ติดลบ');
+            if (!name || !unit || !date || isNaN(qty) || qty <= 0 || isNaN(price) || price < 0) {
+                alert('กรุณากรอกข้อมูลให้ถูกต้องครบถ้วน');
                 return;
             }
 
@@ -616,7 +567,7 @@
                 if (!material_id) {
                     const { data: newMat, error: errMat } = await _supabase.from('materials').insert([{ material_name: name, unit: unit }]).select().single();
                     if (errMat) {
-                        alert('เกิดข้อผิดพลาดในการบันทึกวัสดุ: ' + errMat.message);
+                        alert('ชื่อวัสดุนี้อาจมีอยู่แล้วในระบบ');
                         return;
                     }
                     material_id = newMat.material_id;
@@ -632,13 +583,13 @@
                 }]);
 
                 if (errStock) {
-                    alert('เกิดข้อผิดพลาดในการบันทึกรับเข้า: ' + errStock.message);
+                    alert('เกิดข้อผิดพลาดในการบันทึกรับเข้า');
                     return;
                 }
 
                 alert('บันทึกการรับวัสดุเข้าคลังเรียบร้อยแล้ว');
                 e.target.reset();
-                document.getElementById('rec-date').valueAsDate = new Date();
+                document.getElementById('rec-date').value = getTodayLocalString();
                 loadMaterialsDatalist();
             } finally {
                 setButtonLoading(btnSubmit, false, 'บันทึกการรับเข้า');
@@ -648,7 +599,7 @@
         // --- 3. ประวัติรับเข้า ---
         async function loadReceiveHistory() {
             const { data } = await _supabase.from('stock_in').select('*, materials(material_name, unit)').order('lot_id', { ascending: false });
-            allStockInsCache = data || [];
+            receiveHistoryCache = data || [];
             const tbody = document.getElementById('rec-history-tbody');
             tbody.innerHTML = '';
             if (!data) return;
@@ -671,7 +622,7 @@
         }
 
         function exportReceiveExcel() {
-            const dataToExport = allStockInsCache.map(s => ({
+            const dataToExport = receiveHistoryCache.map(s => ({
                 "เลขล็อต": s.lot_id,
                 "วันที่รับ": s.received_date,
                 "ชื่อวัสดุ": s.materials?.material_name || '-',
@@ -694,11 +645,9 @@
                 return;
             }
             const lotId = parseInt(selected.value, 10);
-            if (isNaN(lotId)) return;
+            const lot = receiveHistoryCache.find(s => s.lot_id === lotId);
 
-            const lot = allStockInsCache.find(s => s.lot_id === lotId);
-
-            if (lot.qty_remaining < lot.qty_received) {
+            if (Number(lot.qty_remaining) < Number(lot.qty_received)) {
                 alert(`ไม่สามารถลบล็อต #${lotId} ได้ เนื่องจากมีการเบิกจ่ายไปบางส่วนแล้ว`);
                 return;
             }
@@ -715,16 +664,15 @@
             const { data: materials } = await _supabase.from('materials').select('*').order('material_name');
             const { data: stockIns } = await _supabase.from('stock_in').select('material_id, qty_remaining');
             
-            allMaterialsCache = materials || [];
-            allStockInsCache = stockIns || [];
-            renderIssueSelect(allMaterialsCache);
+            issueMaterialsCache = materials || [];
+            renderIssueSelect(issueMaterialsCache, stockIns || []);
         }
 
-        function renderIssueSelect(list) {
+        function renderIssueSelect(list, stockIns) {
             const select = document.getElementById('issue-mat-select');
             select.innerHTML = '<option value="">-- เลือกรายการวัสดุ --</option>';
             list.forEach(m => {
-                const itemLots = allStockInsCache.filter(s => s.material_id === m.material_id);
+                const itemLots = stockIns.filter(s => s.material_id === m.material_id);
                 const totalRem = itemLots.reduce((sum, s) => sum + (Number(s.qty_remaining) || 0), 0);
                 const option = document.createElement('option');
                 option.value = m.material_id;
@@ -735,8 +683,11 @@
 
         function filterIssueMaterials() {
             const keyword = document.getElementById('issue-search').value.toLowerCase();
-            const filtered = allMaterialsCache.filter(m => (m.material_name || '').toLowerCase().includes(keyword));
-            renderIssueSelect(filtered);
+            const filtered = issueMaterialsCache.filter(m => (m.material_name || '').toLowerCase().includes(keyword));
+            // ดึง stockIns สดมาคำนวณใหม่ตอนกรอง
+            _supabase.from('stock_in').select('material_id, qty_remaining').then(({data}) => {
+                renderIssueSelect(filtered, data || []);
+            });
         }
 
         async function handleIssue(e) {
@@ -747,18 +698,15 @@
             const qtyNeeded = parseFloat(document.getElementById('issue-qty').value);
             const issued_to = sanitizeInput(document.getElementById('issue-to').value, 200);
 
-            if (isNaN(material_id) || !date) {
-                alert('กรุณาเลือกวัสดุและวันที่เบิกให้ถูกต้อง');
-                return;
-            }
-            if (isNaN(qtyNeeded) || qtyNeeded <= 0) {
-                alert('จำนวนที่เบิกต้องมากกว่า 0');
+            if (isNaN(material_id) || !date || isNaN(qtyNeeded) || qtyNeeded <= 0) {
+                alert('กรุณากรอกข้อมูลการเบิกให้ถูกต้อง');
                 return;
             }
 
             setButtonLoading(btnSubmit, true, 'ยืนยันการเบิกจ่าย');
 
             try {
+                // เรียกใช้ RPC Transaction บน Supabase อย่างเดียว ปลอดภัยที่สุด
                 const { error: rpcError } = await _supabase.rpc('issue_material_fifo', {
                     p_material_id: material_id,
                     p_issue_date: date,
@@ -766,60 +714,16 @@
                     p_issued_to: issued_to
                 });
 
-                if (!rpcError) {
-                    alert('เบิกจ่ายวัสดุสำเร็จเรียบร้อย!');
-                    e.target.reset();
-                    document.getElementById('issue-date').valueAsDate = new Date();
-                    loadMaterialsOption();
-                    loadIssueHistory();
+                if (rpcError) {
+                    alert('เกิดข้อผิดพลาด: ' + rpcError.message);
                     return;
                 }
 
-                if (rpcError.code === 'PGRST202' || rpcError.message.includes('Could not find the function')) {
-                    let remainingToDeduct = qtyNeeded;
-                    const { data: lots } = await _supabase.from('stock_in')
-                        .select('*')
-                        .eq('material_id', material_id)
-                        .gt('qty_remaining', 0)
-                        .order('lot_id', { ascending: true });
-
-                    if (!lots || lots.length === 0) {
-                        alert('ไม่พบสต็อกคงเหลือสำหรับวัสดุนี้');
-                        return;
-                    }
-
-                    const totalAvailable = lots.reduce((sum, l) => sum + Number(l.qty_remaining), 0);
-                    if (remainingToDeduct > totalAvailable) {
-                        alert(`สินค้าไม่พอเบิก! ต้องการเบิก ${remainingToDeduct} แต่มีคงเหลือรวมเพียง ${totalAvailable}`);
-                        return;
-                    }
-
-                    for (let lot of lots) {
-                        if (remainingToDeduct <= 0) break;
-                        let deduct = Number(lot.qty_remaining) >= remainingToDeduct ? remainingToDeduct : Number(lot.qty_remaining);
-                        remainingToDeduct -= deduct;
-
-                        await _supabase.from('stock_in')
-                            .update({ qty_remaining: Number(lot.qty_remaining) - deduct })
-                            .eq('lot_id', lot.lot_id);
-
-                        await _supabase.from('stock_out').insert([{
-                            lot_id: lot.lot_id,
-                            issue_date: date,
-                            qty_issued: deduct,
-                            unit_price: lot.unit_price,
-                            issued_to: issued_to
-                        }]);
-                    }
-
-                    alert('เบิกจ่ายวัสดุสำเร็จเรียบร้อย!');
-                    e.target.reset();
-                    document.getElementById('issue-date').valueAsDate = new Date();
-                    loadMaterialsOption();
-                    loadIssueHistory();
-                } else {
-                    alert('เกิดข้อผิดพลาด: ' + rpcError.message);
-                }
+                alert('เบิกจ่ายวัสดุสำเร็จเรียบร้อย!');
+                e.target.reset();
+                document.getElementById('issue-date').value = getTodayLocalString();
+                loadMaterialsOption();
+                loadIssueHistory();
             } finally {
                 setButtonLoading(btnSubmit, false, 'ยืนยันการเบิกจ่าย');
             }
@@ -828,7 +732,7 @@
         // --- 5. ประวัติเบิกจ่าย ---
         async function loadIssueHistory() {
             const { data } = await _supabase.from('stock_out').select('*, stock_in(material_id, unit_price, materials(material_name, unit))').order('issue_id', { ascending: false });
-            allStockOutsCache = data || [];
+            stockOutsCache = data || [];
             const tbody = document.getElementById('issue-history-tbody');
             tbody.innerHTML = '';
             if (!data) return;
@@ -853,7 +757,7 @@
         }
 
         function exportIssueExcel() {
-            const dataToExport = allStockOutsCache.map(o => ({
+            const dataToExport = stockOutsCache.map(o => ({
                 "เลขที่เบิก": o.issue_id,
                 "วันที่เบิก": o.issue_date,
                 "ชื่อวัสดุ": o.stock_in?.materials?.material_name || '-',
@@ -876,19 +780,16 @@
                 return;
             }
             const issueId = parseInt(selected.value, 10);
-            if (isNaN(issueId)) return;
 
-            const issueItem = allStockOutsCache.find(o => o.issue_id === issueId);
+            if (!confirm(`ยืนยันการยกเลิกการเบิกรายการ #${issueId} ใช่หรือไม่? (ระบบจะคืนสต็อกกลับเข้าล็อตอัตโนมัติ)`)) return;
 
-            if (!confirm(`ยืนยันการยกเลิกการเบิกรายการ #${issueId} ใช่หรือไม่? (ระบบจะคืนสต็อกกลับเข้าล็อต #${issueItem.lot_id} อัตโนมัติ)`)) return;
-
-            const { data: lotData } = await _supabase.from('stock_in').select('qty_remaining').eq('lot_id', issueItem.lot_id).single();
-            if (lotData) {
-                const newRemaining = Number(lotData.qty_remaining) + Number(issueItem.qty_issued);
-                await _supabase.from('stock_in').update({ qty_remaining: newRemaining }).eq('lot_id', issueItem.lot_id);
+            // เรียกใช้ RPC Transaction ฝั่ง DB เพื่อคืนสต็อกและลบแบบปลอดภัย
+            const { error } = await _supabase.rpc('cancel_issue_transaction', { p_issue_id: issueId });
+            
+            if (error) {
+                alert('ไม่สามารถยกเลิกรายการได้: ' + error.message);
+                return;
             }
-
-            await _supabase.from('stock_out').delete().eq('issue_id', issueId);
 
             alert('ยกเลิกรายการเบิกและคืนสต็อกเรียบร้อยแล้ว');
             loadIssueHistory();
