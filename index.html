@@ -488,9 +488,9 @@
                 return;
             }
 
-            // ดึงประวัติรับเข้า (Stock In) และเบิกจ่าย (Stock Out) ทั้งหมด
-            const { data: allStockIns } = await _supabase.from('stock_in').select('*');
-            const { data: allStockOuts } = await _supabase.from('stock_out').select('*');
+            // 🔄 กำหนดการดึงข้อมูลจาก Supabase ให้เรียงวันที่จากเก่าไปใหม่ทันที (ascending: true)
+            const { data: allStockIns } = await _supabase.from('stock_in').select('*').order('received_date', { ascending: true });
+            const { data: allStockOuts } = await _supabase.from('stock_out').select('*').order('issue_date', { ascending: true });
 
             const stockIns = allStockIns || [];
             const stockOuts = allStockOuts || [];
@@ -498,7 +498,6 @@
             const workbook = XLSX.utils.book_new();
             const usedSheetNames = new Set();
 
-            // วนลูปสร้างทีละ Sheet ตามรายชื่อวัสดุทั้งหมด
             for (const item of summaryMaterialsCache) {
                 const matId = item.material_id;
                 const matName = item.material_name || '';
@@ -510,14 +509,12 @@
 
                 const rows = [];
 
-                // หัวกระดาษตามแบบฟอร์ม รบ.301
                 rows.push(["แบบ รบ. 301", "", "", "", "", "", "", "", "", ""]);
                 rows.push(["กองสาธารณสุขและสิ่งแวดล้อม องค์การบริหารส่วนตำบลเมืองเก่า ตำบลเมืองเก่า อำเภอกบินทร์บุรี จังหวัดปราจีนบุรี", "", "", "", "", "", "", "", "", ""]);
                 rows.push(["บัญชีรับ – จ่าย วัสดุ", "", "", "", "", "", "", "", "", ""]);
                 rows.push([`วัสดุหรือสิ่งของ ${matName}`, "", "", `หน่วยนับ ${matUnit}`, "", "", "", "", "", ""]);
                 rows.push(["", "", "", "", "", "", "", "", "", ""]);
 
-                // หัวตารางคอลัมน์ตรงตามแบบฟอร์ม
                 rows.push([
                     "ว/ด/ป", 
                     "รายการ รับจ่าย", 
@@ -560,7 +557,7 @@
                     });
                 });
 
-                // 🔄 เรียงลำดับวันที่จาก "เก่าไปใหม่" (ascending: วันที่น้อย/เก่า อยู่บน, วันที่มาก/ใหม่ อยู่ล่าง)
+                // 🔄 เรียงลำดับวันที่ให้มั่นใจอีกชั้นว่าเรียงจากเก่าไปใหม่ (น้อยไปมาก)
                 transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
 
                 let runningQty = 0;
@@ -595,7 +592,6 @@
 
                 const worksheet = XLSX.utils.aoa_to_sheet(rows);
 
-                // ตั้งชื่อ Sheet ให้ปลอดภัยตามกฎของ Excel (ไม่เกิน 31 ตัวอักษร, ไม่มีอักขระต้องห้าม, ไม่ซ้ำกัน)
                 const cleanName = matName.replace(/[\\/?*\[\]:]/g, '_').trim();
                 let baseSheetName = `${matId}_${cleanName}`.slice(0, 31);
                 let finalSheetName = baseSheetName;
@@ -611,7 +607,6 @@
                 XLSX.utils.book_append_sheet(workbook, worksheet, finalSheetName);
             }
 
-            // ดาวน์โหลดเป็นไฟล์เดียว (มีหลายชีท)
             const fileName = `Report_Form301_All_Materials_${getTodayLocalString()}.xlsx`;
             XLSX.writeFile(workbook, fileName);
         }
