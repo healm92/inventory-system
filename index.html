@@ -488,9 +488,9 @@
                 return;
             }
 
-            // ดึงประวัติรับเข้า (Stock In) และเบิกจ่าย (Stock Out) ทั้งหมดมาผูกข้อมูล
-            const { data: allStockIns } = await _supabase.from('stock_in').select('*').order('received_date', { ascending: true });
-            const { data: allStockOuts } = await _supabase.from('stock_out').select('*').order('issue_date', { ascending: true });
+            // ดึงประวัติรับเข้า (Stock In) และเบิกจ่าย (Stock Out) ทั้งหมด
+            const { data: allStockIns } = await _supabase.from('stock_in').select('*');
+            const { data: allStockOuts } = await _supabase.from('stock_out').select('*');
 
             const stockIns = allStockIns || [];
             const stockOuts = allStockOuts || [];
@@ -560,6 +560,7 @@
                     });
                 });
 
+                // 🔄 เรียงลำดับวันที่จาก "เก่าไปใหม่" (ascending: วันที่น้อย/เก่า อยู่บน, วันที่มาก/ใหม่ อยู่ล่าง)
                 transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
 
                 let runningQty = 0;
