@@ -118,6 +118,7 @@
                     <div class="flex flex-wrap gap-2">
                         <button id="btn-backup" onclick="backupDatabase()" class="hidden bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition items-center gap-1">💾 สำรองข้อมูลระบบ</button>
                         <button onclick="exportSummaryExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📊 ส่งออกเฉพาะวัสดุที่เหลือ (Excel)</button>
+                        <button onclick="exportForm301Excel()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📄 ส่งออก รบ.301 (ทุกวัสดุ)</button>
                         <button id="btn-del-mat" onclick="deleteSelectedMaterial()" class="hidden bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition items-center gap-1">❌ ลบชื่อวัสดุที่เลือก</button>
                     </div>
                 </div>
@@ -323,12 +324,12 @@
             const errorDiv = document.getElementById('login-error');
             const { data: profile, error } = await _supabase
                 .from('user_profiles')
-                .select('email, full_name, position, role') // <-- ลบ id, ออกแล้ว
+                .select('email, full_name, position, role')
                 .eq('email', email)
                 .maybeSingle();
 
             if (error || !profile || (profile.role !== 'staff' && profile.role !== 'admin')) {
-                console.error("Profile fetch error:", error); // ช่วยให้ดู error จริงใน console ได้ถ้ามีอีก
+                console.error("Profile fetch error:", error);
                 errorDiv.textContent = "บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบครับ";
                 errorDiv.classList.remove('hidden');
                 await _supabase.auth.signOut();
@@ -479,6 +480,33 @@
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, "สรุปวัสดุคงเหลือ");
             XLSX.writeFile(workbook, "summary_inventory_in_stock.xlsx");
+        }
+
+        function exportForm301Excel() {
+            if (!summaryMaterialsCache || summaryMaterialsCache.length === 0) {
+                alert('ไม่มีข้อมูลวัสดุในระบบครับ');
+                return;
+            }
+
+            // ดึงข้อมูลวัสดุทุกรายการในฐานข้อมูล (ทั้งที่มีเหลือและหมดสต็อก) โดยไม่รวม Lot.No., Exp. และขนาดบรรจุ
+            const dataToExport = summaryMaterialsCache.map(item => {
+                const itemLots = summaryStockInsCache.filter(s => s.material_id === item.material_id);
+                const totalQty = itemLots.reduce((sum, s) => sum + (Number(s.qty_remaining) || 0), 0);
+                const totalValue = itemLots.reduce((sum, s) => sum + ((Number(s.qty_remaining) || 0) * (Number(s.unit_price) || 0)), 0);
+
+                return {
+                    "รหัสวัสดุ": item.material_id,
+                    "ชื่อวัสดุ": item.material_name,
+                    "หน่วยนับ": item.unit,
+                    "จำนวนคงเหลือรวม": totalQty,
+                    "มูลค่ารวม (บาท)": totalValue
+                };
+            });
+
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "รายงาน รบ.301");
+            XLSX.writeFile(workbook, `Report_Form301_All_Materials_${getTodayLocalString()}.xlsx`);
         }
 
         async function deleteSelectedMaterial() {
@@ -685,7 +713,6 @@
         function filterIssueMaterials() {
             const keyword = document.getElementById('issue-search').value.toLowerCase();
             const filtered = issueMaterialsCache.filter(m => (m.material_name || '').toLowerCase().includes(keyword));
-            // ดึง stockIns สดมาคำนวณใหม่ตอนกรอง
             _supabase.from('stock_in').select('material_id, qty_remaining').then(({data}) => {
                 renderIssueSelect(filtered, data || []);
             });
@@ -707,7 +734,6 @@
             setButtonLoading(btnSubmit, true, 'ยืนยันการเบิกจ่าย');
 
             try {
-                // เรียกใช้ RPC Transaction บน Supabase อย่างเดียว ปลอดภัยที่สุด
                 const { error: rpcError } = await _supabase.rpc('issue_material_fifo', {
                     p_material_id: material_id,
                     p_issue_date: date,
@@ -784,7 +810,6 @@
 
             if (!confirm(`ยืนยันการยกเลิกการเบิกรายการ #${issueId} ใช่หรือไม่? (ระบบจะคืนสต็อกกลับเข้าล็อตอัตโนมัติ)`)) return;
 
-            // เรียกใช้ RPC Transaction ฝั่ง DB เพื่อคืนสต็อกและลบแบบปลอดภัย
             const { error } = await _supabase.rpc('cancel_issue_transaction', { p_issue_id: issueId });
             
             if (error) {
