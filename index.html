@@ -118,7 +118,7 @@
                     <div class="flex flex-wrap gap-2">
                         <button id="btn-backup" onclick="backupDatabase()" class="hidden bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition items-center gap-1">💾 สำรองข้อมูลระบบ</button>
                         <button onclick="exportSummaryExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📊 ส่งออกเฉพาะวัสดุที่เหลือ (Excel)</button>
-                        <button onclick="exportForm301Excel()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📄 ส่งออก รบ.301 (ทุกวัสดุ)</button>
+                        <button onclick="exportForm301Excel()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">📄 ส่งออก รบ.301 (แยก Sheet)</button>
                         <button id="btn-del-mat" onclick="deleteSelectedMaterial()" class="hidden bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition items-center gap-1">❌ ลบชื่อวัสดุที่เลือก</button>
                     </div>
                 </div>
@@ -482,31 +482,137 @@
             XLSX.writeFile(workbook, "summary_inventory_in_stock.xlsx");
         }
 
-        function exportForm301Excel() {
+        async function exportForm301Excel() {
             if (!summaryMaterialsCache || summaryMaterialsCache.length === 0) {
                 alert('ไม่มีข้อมูลวัสดุในระบบครับ');
                 return;
             }
 
-            // ดึงข้อมูลวัสดุทุกรายการในฐานข้อมูล (ทั้งที่มีเหลือและหมดสต็อก) โดยไม่รวม Lot.No., Exp. และขนาดบรรจุ
-            const dataToExport = summaryMaterialsCache.map(item => {
-                const itemLots = summaryStockInsCache.filter(s => s.material_id === item.material_id);
-                const totalQty = itemLots.reduce((sum, s) => sum + (Number(s.qty_remaining) || 0), 0);
-                const totalValue = itemLots.reduce((sum, s) => sum + ((Number(s.qty_remaining) || 0) * (Number(s.unit_price) || 0)), 0);
+            // ดึงประวัติรับเข้า (Stock In) และเบิกจ่าย (Stock Out) ทั้งหมดมาผูกข้อมูล
+            const { data: allStockIns } = await _supabase.from('stock_in').select('*').order('received_date', { ascending: true });
+            const { data: allStockOuts } = await _supabase.from('stock_out').select('*').order('issue_date', { ascending: true });
 
-                return {
-                    "รหัสวัสดุ": item.material_id,
-                    "ชื่อวัสดุ": item.material_name,
-                    "หน่วยนับ": item.unit,
-                    "จำนวนคงเหลือรวม": totalQty,
-                    "มูลค่ารวม (บาท)": totalValue
-                };
-            });
+            const stockIns = allStockIns || [];
+            const stockOuts = allStockOuts || [];
 
-            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
             const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "รายงาน รบ.301");
-            XLSX.writeFile(workbook, `Report_Form301_All_Materials_${getTodayLocalString()}.xlsx`);
+            const usedSheetNames = new Set();
+
+            // วนลูปสร้างทีละ Sheet ตามรายชื่อวัสดุทั้งหมด
+            for (const item of summaryMaterialsCache) {
+                const matId = item.material_id;
+                const matName = item.material_name || '';
+                const matUnit = item.unit || '';
+
+                const itemIns = stockIns.filter(s => s.material_id === matId);
+                const lotIds = itemIns.map(s => s.lot_id);
+                const itemOuts = stockOuts.filter(o => lotIds.includes(o.lot_id));
+
+                const rows = [];
+
+                // หัวกระดาษตามแบบฟอร์ม รบ.301
+                rows.push(["แบบ รบ. 301", "", "", "", "", "", "", "", "", ""]);
+                rows.push(["กองสาธารณสุขและสิ่งแวดล้อม องค์การบริหารส่วนตำบลเมืองเก่า ตำบลเมืองเก่า อำเภอกบินทร์บุรี จังหวัดปราจีนบุรี", "", "", "", "", "", "", "", "", ""]);
+                rows.push(["บัญชีรับ – จ่าย วัสดุ", "", "", "", "", "", "", "", "", ""]);
+                rows.push([`วัสดุหรือสิ่งของ ${matName}`, "", "", `หน่วยนับ ${matUnit}`, "", "", "", "", "", ""]);
+                rows.push(["", "", "", "", "", "", "", "", "", ""]);
+
+                // หัวตารางคอลัมน์ตรงตามแบบฟอร์ม
+                rows.push([
+                    "ว/ด/ป", 
+                    "รายการ รับจ่าย", 
+                    "จำนวนที่รับ", 
+                    "ราคา/หน่วย", 
+                    "รวมมูลค่า", 
+                    "จำนวนที่จ่าย", 
+                    "รวมมูลค่า", 
+                    "คงเหลือ", 
+                    "มูลค่า", 
+                    "หมายเหตุ"
+                ]);
+
+                let transactions = [];
+                itemIns.forEach(inItem => {
+                    transactions.push({
+                        date: inItem.received_date,
+                        type: 'in',
+                        desc: `รับจาก: ${inItem.received_from || '-'}`,
+                        qty_in: Number(inItem.qty_received) || 0,
+                        price: Number(inItem.unit_price) || 0,
+                        total_in: (Number(inItem.qty_received) || 0) * (Number(inItem.unit_price) || 0),
+                        qty_out: 0,
+                        total_out: 0
+                    });
+                });
+
+                itemOuts.forEach(outItem => {
+                    const matchedLot = itemIns.find(l => l.lot_id === outItem.lot_id);
+                    const price = matchedLot ? Number(matchedLot.unit_price) || 0 : 0;
+                    transactions.push({
+                        date: outItem.issue_date,
+                        type: 'out',
+                        desc: `จ่ายให้: ${outItem.issued_to || '-'}`,
+                        qty_in: 0,
+                        price: 0,
+                        total_in: 0,
+                        qty_out: Number(outItem.qty_issued) || 0,
+                        total_out: (Number(outItem.qty_issued) || 0) * price
+                    });
+                });
+
+                transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                let runningQty = 0;
+                let runningValue = 0;
+
+                transactions.forEach(tx => {
+                    if (tx.type === 'in') {
+                        runningQty += tx.qty_in;
+                        runningValue += tx.total_in;
+                    } else {
+                        runningQty -= tx.qty_out;
+                        runningValue -= tx.total_out;
+                    }
+
+                    rows.push([
+                        tx.date,
+                        tx.desc,
+                        tx.qty_in > 0 ? tx.qty_in : "",
+                        tx.price > 0 ? tx.price : "",
+                        tx.total_in > 0 ? tx.total_in : "",
+                        tx.qty_out > 0 ? tx.qty_out : "",
+                        tx.total_out > 0 ? tx.total_out : "",
+                        runningQty,
+                        runningValue > 0 ? runningValue : 0,
+                        ""
+                    ]);
+                });
+
+                if (transactions.length === 0) {
+                    rows.push(["", "", "", "", 0, "", 0, "", 0, ""]);
+                }
+
+                const worksheet = XLSX.utils.aoa_to_sheet(rows);
+
+                // ตั้งชื่อ Sheet ให้ปลอดภัยตามกฎของ Excel (ไม่เกิน 31 ตัวอักษร, ไม่มีอักขระต้องห้าม, ไม่ซ้ำกัน)
+                const cleanName = matName.replace(/[\\/?*\[\]:]/g, '_').trim();
+                let baseSheetName = `${matId}_${cleanName}`.slice(0, 31);
+                let finalSheetName = baseSheetName;
+                let counter = 1;
+
+                while (usedSheetNames.has(finalSheetName)) {
+                    const suffix = `_${counter}`;
+                    finalSheetName = baseSheetName.slice(0, 31 - suffix.length) + suffix;
+                    counter++;
+                }
+                usedSheetNames.add(finalSheetName);
+
+                XLSX.utils.book_append_sheet(workbook, worksheet, finalSheetName);
+            }
+
+            // ดาวน์โหลดเป็นไฟล์เดียว (มีหลายชีท)
+            const fileName = `Report_Form301_All_Materials_${getTodayLocalString()}.xlsx`;
+            XLSX.writeFile(workbook, fileName);
         }
 
         async function deleteSelectedMaterial() {
