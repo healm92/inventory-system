@@ -488,9 +488,8 @@
                 return;
             }
 
-            // 🔄 กำหนดการดึงข้อมูลจาก Supabase ให้เรียงวันที่จากเก่าไปใหม่ทันที (ascending: true)
-            const { data: allStockIns } = await _supabase.from('stock_in').select('*').order('received_date', { ascending: true });
-            const { data: allStockOuts } = await _supabase.from('stock_out').select('*').order('issue_date', { ascending: true });
+            const { data: allStockIns } = await _supabase.from('stock_in').select('*');
+            const { data: allStockOuts } = await _supabase.from('stock_out').select('*');
 
             const stockIns = allStockIns || [];
             const stockOuts = allStockOuts || [];
@@ -557,8 +556,8 @@
                     });
                 });
 
-                // 🔄 เรียงลำดับวันที่ให้มั่นใจอีกชั้นว่าเรียงจากเก่าไปใหม่ (น้อยไปมาก)
-                transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+                // 🔄 เรียงลำดับวันที่จากเก่าไปใหม่อย่างแม่นยำด้วย localeCompare
+                transactions.sort((a, b) => a.date.localeCompare(b.date));
 
                 let runningQty = 0;
                 let runningValue = 0;
